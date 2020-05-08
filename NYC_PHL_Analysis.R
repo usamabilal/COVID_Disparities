@@ -404,13 +404,13 @@ loadings<-data.frame(var=names(nyc_pca$rotation[,1]),
 write.csv(loadings, file="results/loadings.csv")
 
 
-
-
-
-
+# plotting specific variables for the last available date in NYC
 smoother<-stat_smooth(method="lm")
+both<-all %>% filter(city=="New York City") %>% 
+  ungroup() %>% 
+  filter(date==max(date))
 # MHI plot
-p1<-ggplot(all, aes(x=mhi, y=pct_pos)) +
+p1<-ggplot(both, aes(x=mhi, y=pct_pos)) +
   smoother+
   geom_point()+
   scale_x_log10(breaks=c(10000, 20000, 30000,
@@ -430,7 +430,7 @@ p1b<-ggplot(both, aes(x=pct_college, y=pct_pos)) +
   #                        50000, 70000, 100000, 200000))+
   # annotation_logticks(sides="b")+
   scale_x_continuous(limits=c(NA, NA), labels=scales::percent_format(accuracy = 1))+
-  scale_y_continuous(limits=c(.2, .85), labels=scales::percent_format(accuracy = 1))+
+  scale_y_continuous(limits=c(.2, .65), labels=scales::percent_format(accuracy = 1))+
   theme_bw() +
   labs(x="% Completed College or above\n(2014-2018)",
        y="% Positive tests",
@@ -447,7 +447,7 @@ p2<-ggplot(both, aes(x=pct_black, y=pct_pos)) +
   # scale_x_log10(limits=c(15000, 120000),
   #               breaks=c(10000, 20000, 30000, 40000,
   #                        50000, 70000, 100000))+
-  scale_y_continuous(limits=c(.2, .85), labels=scales::percent_format(accuracy = 1))+
+  scale_y_continuous(limits=c(.2, .650), labels=scales::percent_format(accuracy = 1))+
   scale_x_continuous(limits=c(NA, NA), labels=scales::percent_format(accuracy = 1))+
   #annotation_logticks(sides="b")+
   theme_bw() +
@@ -466,7 +466,7 @@ p2b<-ggplot(both, aes(x=pct_nhwhite, y=pct_pos)) +
   # scale_x_log10(limits=c(15000, 120000),
   #               breaks=c(10000, 20000, 30000, 40000,
   #                        50000, 70000, 100000))+
-  scale_y_continuous(limits=c(.2, .85), labels=scales::percent_format(accuracy = 1))+
+  scale_y_continuous(limits=c(.2, .65), labels=scales::percent_format(accuracy = 1))+
   scale_x_continuous(limits=c(NA, NA), labels=scales::percent_format(accuracy = 1))+
   #annotation_logticks(sides="b")+
   theme_bw() +
@@ -484,7 +484,7 @@ p2c<-ggplot(both, aes(x=pct_transit, y=pct_pos)) +
   # scale_x_log10(limits=c(15000, 120000),
   #               breaks=c(10000, 20000, 30000, 40000,
   #                        50000, 70000, 100000))+
-  scale_y_continuous(limits=c(.2, .85), labels=scales::percent_format(accuracy = 1))+
+  scale_y_continuous(limits=c(.2, .65), labels=scales::percent_format(accuracy = 1))+
   scale_x_continuous(limits=c(NA, NA), labels=scales::percent_format(accuracy = 1))+
   #annotation_logticks(sides="b")+
   theme_bw() +
@@ -503,7 +503,7 @@ p3<-ggplot(both, aes(x=pct_hisp, y=pct_pos)) +
   # scale_x_log10(limits=c(15000, 120000),
   #               breaks=c(10000, 20000, 30000, 40000,
   #                        50000, 70000, 100000))+
-  scale_y_continuous(limits=c(.2, .85), labels=scales::percent_format(accuracy = 1))+
+  scale_y_continuous(limits=c(.2, .65), labels=scales::percent_format(accuracy = 1))+
   scale_x_continuous(limits=c(NA, NA), labels=scales::percent_format(accuracy = 1))+
   #annotation_logticks(sides="b")+
   theme_bw() +
@@ -523,7 +523,7 @@ p4<-ggplot(both, aes(x=limited_engl, y=pct_pos)) +
   # scale_x_log10(limits=c(15000, 120000),
   #               breaks=c(10000, 20000, 30000, 40000,
   #                        50000, 70000, 100000))+
-  scale_y_continuous(limits=c(.2, .85), labels=scales::percent_format(accuracy = 1))+
+  scale_y_continuous(limits=c(.2, .65), labels=scales::percent_format(accuracy = 1))+
   scale_x_continuous(limits=c(NA, NA), labels=scales::percent_format(accuracy = 1))+
   #annotation_logticks(sides="b")+
   theme_bw() +
@@ -540,7 +540,7 @@ p5<-ggplot(both, aes(x=no_healthins, y=pct_pos)) +
   #               breaks=c(10000, 20000, 30000, 40000,
   #                        50000, 70000, 100000))+
   #annotation_logticks(sides="b")+
-  scale_y_continuous(limits=c(.2, .85), labels=scales::percent_format(accuracy = 1))+
+  scale_y_continuous(limits=c(.2, .65), labels=scales::percent_format(accuracy = 1))+
   scale_x_continuous(limits=c(NA, NA), labels=scales::percent_format(accuracy = 1))+
   theme_bw() +
   labs(x="% with no Health Insurance\n (2014-2018)",
@@ -558,7 +558,7 @@ p6<-ggplot(both, aes(x=pct_overcrowded2, y=pct_pos)) +
   # scale_x_log10(limits=c(15000, 120000),
   #               breaks=c(10000, 20000, 30000, 40000,
   #                        50000, 70000, 100000))+
-  scale_y_continuous(limits=c(.2, .85), labels=scales::percent_format(accuracy = 1))+
+  scale_y_continuous(limits=c(.2, .65), labels=scales::percent_format(accuracy = 1))+
   scale_x_continuous(limits=c(NA, NA), labels=scales::percent_format(accuracy = 1))+
   #annotation_logticks(sides="b")+
   theme_bw() +
@@ -575,7 +575,7 @@ p7<-ggplot(both, aes(x=pct_overcrowded15, y=pct_pos)) +
   # scale_x_log10(limits=c(15000, 120000),
   #               breaks=c(10000, 20000, 30000, 40000,
   #                        50000, 70000, 100000))+
-  scale_y_continuous(limits=c(.2, .85), labels=scales::percent_format(accuracy = 1))+
+  scale_y_continuous(limits=c(.2, .65), labels=scales::percent_format(accuracy = 1))+
   scale_x_continuous(limits=c(NA, NA), labels=scales::percent_format(accuracy = 1))+
   #annotation_logticks(sides="b")+
   theme_bw() +
@@ -592,7 +592,7 @@ p8<-ggplot(both, aes(x=pct_overcrowded1, y=pct_pos)) +
   # scale_x_log10(limits=c(15000, 120000),
   #               breaks=c(10000, 20000, 30000, 40000,
   #                        50000, 70000, 100000))+
-  scale_y_continuous(limits=c(.2, .85), labels=scales::percent_format(accuracy = 1))+
+  scale_y_continuous(limits=c(.2, .65), labels=scales::percent_format(accuracy = 1))+
   scale_x_continuous(limits=c(NA, NA), labels=scales::percent_format(accuracy = 1))+
   #annotation_logticks(sides="b")+
   theme_bw() +
@@ -610,7 +610,7 @@ p9<-ggplot(both, aes(x=pct_service, y=pct_pos)) +
   # scale_x_log10(limits=c(15000, 120000),
   #               breaks=c(10000, 20000, 30000, 40000,
   #                        50000, 70000, 100000))+
-  scale_y_continuous(limits=c(.2, .85), labels=scales::percent_format(accuracy = 1))+
+  scale_y_continuous(limits=c(.2, .65), labels=scales::percent_format(accuracy = 1))+
   scale_x_continuous(limits=c(NA, NA), labels=scales::percent_format(accuracy = 1))+
   #annotation_logticks(sides="b")+
   theme_bw() +
@@ -620,7 +620,7 @@ p9<-ggplot(both, aes(x=pct_service, y=pct_pos)) +
 pall<-(arrangeGrob(grobs=list(p1, p1b, p2b, p5, p8, p9), ncol=3, 
                    top=textGrob("% Positive Tests per Zip Code in NYC", gp=gpar(fontsize=20,face="bold",font=8)),
                    bottom=textGrob("Source: NYC DOH (github) and 5-year 2014-2018 ACS", gp=gpar(fontsize=10,font=8))))
-ggsave("tests_NYC2.pdf", pall, width=16, height=12/(20/15))
+ggsave("Results/NYC_Vars_Pct_pos.pdf", pall, width=16, height=12/(20/15))
 
 
 
@@ -630,8 +630,8 @@ p1<-ggplot(both, aes(x=mhi, y=tests_pc)) +
   geom_point()+
   scale_x_log10(breaks=c(10000, 20000, 30000,
                          50000, 70000, 100000, 200000))+
-  scale_y_continuous(limits=c(0, NA))+
-  annotation_logticks(sides="b")+
+  scale_y_log10()+
+  annotation_logticks(sides="bl")+
   theme_bw() +
   labs(x="Median Household Income\n (2014-2018)",
        y="Tests per 1,000",
@@ -645,7 +645,8 @@ p1b<-ggplot(both, aes(x=pct_college, y=tests_pc)) +
   #                        50000, 70000, 100000, 200000))+
   # annotation_logticks(sides="b")+
   scale_x_continuous(limits=c(NA, NA), labels=scales::percent_format(accuracy = 1))+
-  scale_y_continuous(limits=c(0, NA))+
+  scale_y_log10()+
+  annotation_logticks(sides="l")+
   theme_bw() +
   labs(x="% Completed College or above\n(2014-2018)",
        y="Tests per 1,000",
@@ -662,7 +663,8 @@ p2<-ggplot(both, aes(x=pct_black, y=tests_pc)) +
   # scale_x_log10(limits=c(15000, 120000),
   #               breaks=c(10000, 20000, 30000, 40000,
   #                        50000, 70000, 100000))+
-  scale_y_continuous(limits=c(0, NA))+
+  scale_y_log10()+
+  annotation_logticks(sides="l")+
   scale_x_continuous(limits=c(NA, NA), labels=scales::percent_format(accuracy = 1))+
   #annotation_logticks(sides="b")+
   theme_bw() +
@@ -681,7 +683,7 @@ p2b<-ggplot(both, aes(x=pct_nhwhite, y=tests_pc)) +
   # scale_x_log10(limits=c(15000, 120000),
   #               breaks=c(10000, 20000, 30000, 40000,
   #                        50000, 70000, 100000))+
-  scale_y_continuous(limits=c(0, NA))+
+  scale_y_log10()+   annotation_logticks(sides="l")+   
   scale_x_continuous(limits=c(NA, NA), labels=scales::percent_format(accuracy = 1))+
   #annotation_logticks(sides="b")+
   theme_bw() +
@@ -701,7 +703,7 @@ p3<-ggplot(both, aes(x=pct_hisp, y=tests_pc)) +
   # scale_x_log10(limits=c(15000, 120000),
   #               breaks=c(10000, 20000, 30000, 40000,
   #                        50000, 70000, 100000))+
-  scale_y_continuous(limits=c(0, NA))+
+  scale_y_log10()+   annotation_logticks(sides="l")+   
   scale_x_continuous(limits=c(NA, NA), labels=scales::percent_format(accuracy = 1))+
   #annotation_logticks(sides="b")+
   theme_bw() +
@@ -721,7 +723,7 @@ p4<-ggplot(both, aes(x=limited_engl, y=tests_pc)) +
   # scale_x_log10(limits=c(15000, 120000),
   #               breaks=c(10000, 20000, 30000, 40000,
   #                        50000, 70000, 100000))+
-  scale_y_continuous(limits=c(0, NA))+
+  scale_y_log10()+   annotation_logticks(sides="l")+   
   scale_x_continuous(limits=c(NA, NA), labels=scales::percent_format(accuracy = 1))+
   #annotation_logticks(sides="b")+
   theme_bw() +
@@ -738,7 +740,7 @@ p5<-ggplot(both, aes(x=no_healthins, y=tests_pc)) +
   #               breaks=c(10000, 20000, 30000, 40000,
   #                        50000, 70000, 100000))+
   #annotation_logticks(sides="b")+
-  scale_y_continuous(limits=c(0, NA))+
+  scale_y_log10()+   annotation_logticks(sides="l")+   
   scale_x_continuous(limits=c(NA, NA), labels=scales::percent_format(accuracy = 1))+
   theme_bw() +
   labs(x="% with no Health Insurance\n (2014-2018)",
@@ -756,7 +758,7 @@ p6<-ggplot(both, aes(x=pct_overcrowded2, y=tests_pc)) +
   # scale_x_log10(limits=c(15000, 120000),
   #               breaks=c(10000, 20000, 30000, 40000,
   #                        50000, 70000, 100000))+
-  scale_y_continuous(limits=c(0, NA))+
+  scale_y_log10()+   annotation_logticks(sides="l")+   
   scale_x_continuous(limits=c(NA, NA), labels=scales::percent_format(accuracy = 1))+
   #annotation_logticks(sides="b")+
   theme_bw() +
@@ -773,7 +775,7 @@ p7<-ggplot(both, aes(x=pct_overcrowded15, y=tests_pc)) +
   # scale_x_log10(limits=c(15000, 120000),
   #               breaks=c(10000, 20000, 30000, 40000,
   #                        50000, 70000, 100000))+
-  scale_y_continuous(limits=c(0, NA))+
+  scale_y_log10()+   annotation_logticks(sides="l")+   
   scale_x_continuous(limits=c(NA, NA), labels=scales::percent_format(accuracy = 1))+
   #annotation_logticks(sides="b")+
   theme_bw() +
@@ -790,7 +792,7 @@ p8<-ggplot(both, aes(x=pct_overcrowded1, y=tests_pc)) +
   # scale_x_log10(limits=c(15000, 120000),
   #               breaks=c(10000, 20000, 30000, 40000,
   #                        50000, 70000, 100000))+
-  scale_y_continuous(limits=c(0, NA))+
+  scale_y_log10()+   annotation_logticks(sides="l")+   
   scale_x_continuous(limits=c(NA, NA), labels=scales::percent_format(accuracy = 1))+
   #annotation_logticks(sides="b")+
   theme_bw() +
@@ -808,7 +810,7 @@ p9<-ggplot(both, aes(x=pct_service, y=tests_pc)) +
   # scale_x_log10(limits=c(15000, 120000),
   #               breaks=c(10000, 20000, 30000, 40000,
   #                        50000, 70000, 100000))+
-  scale_y_continuous(limits=c(0, NA))+
+  scale_y_log10()+   annotation_logticks(sides="l")+   
   scale_x_continuous(limits=c(NA, NA), labels=scales::percent_format(accuracy = 1))+
   #annotation_logticks(sides="b")+
   theme_bw() +
@@ -818,7 +820,7 @@ p9<-ggplot(both, aes(x=pct_service, y=tests_pc)) +
 pall<-(arrangeGrob(grobs=list(p1, p1b, p2b, p5, p8, p9), ncol=3, 
                    top=textGrob("Total Tests per Zip Code in NYC", gp=gpar(fontsize=20,face="bold",font=8)),
                    bottom=textGrob("Source: NYHealth (github) and 5-year 2014-2018 ACS", gp=gpar(fontsize=10,font=8))))
-ggsave("tests_NYC3.pdf", pall, width=16, height=12/(20/15))
+ggsave("Results/NYC_Vars_tests_pc.pdf", pall, width=16, height=12/(20/15))
 
 
 # MHI plot
@@ -827,8 +829,9 @@ p1<-ggplot(both, aes(x=mhi, y=pos_pc*1000)) +
   geom_point()+
   scale_x_log10(breaks=c(10000, 20000, 30000,
                          50000, 70000, 100000, 200000))+
-  scale_y_continuous(limits=c(0, NA))+
-  annotation_logticks(sides="b")+
+  #scale_y_continuous(limits=c(0, NA))+
+  scale_y_log10()+
+  annotation_logticks(sides="bl")+
   theme_bw() +
   labs(x="Median Household Income\n (2014-2018)",
        y="Confirmed cases per 1,000",
@@ -842,7 +845,7 @@ p1b<-ggplot(both, aes(x=pct_college, y=pos_pc*1000)) +
   #                        50000, 70000, 100000, 200000))+
   # annotation_logticks(sides="b")+
   scale_x_continuous(limits=c(NA, NA), labels=scales::percent_format(accuracy = 1))+
-  scale_y_continuous(limits=c(0, NA))+
+  scale_y_log10()+   annotation_logticks(sides="l")+   
   theme_bw() +
   labs(x="% Completed College or above\n(2014-2018)",
        y="Confirmed cases per 1,000",
@@ -859,7 +862,7 @@ p2<-ggplot(both, aes(x=pct_black, y=pos_pc*1000)) +
   # scale_x_log10(limits=c(15000, 120000),
   #               breaks=c(10000, 20000, 30000, 40000,
   #                        50000, 70000, 100000))+
-  scale_y_continuous(limits=c(0, NA))+
+  scale_y_log10()+   annotation_logticks(sides="l")+   
   scale_x_continuous(limits=c(NA, NA), labels=scales::percent_format(accuracy = 1))+
   #annotation_logticks(sides="b")+
   theme_bw() +
@@ -878,7 +881,7 @@ p2b<-ggplot(both, aes(x=pct_nhwhite, y=pos_pc*1000)) +
   # scale_x_log10(limits=c(15000, 120000),
   #               breaks=c(10000, 20000, 30000, 40000,
   #                        50000, 70000, 100000))+
-  scale_y_continuous(limits=c(0, NA))+
+  scale_y_log10()+   annotation_logticks(sides="l")+   
   scale_x_continuous(limits=c(NA, NA), labels=scales::percent_format(accuracy = 1))+
   #annotation_logticks(sides="b")+
   theme_bw() +
@@ -898,7 +901,7 @@ p3<-ggplot(both, aes(x=pct_hisp, y=pos_pc*1000)) +
   # scale_x_log10(limits=c(15000, 120000),
   #               breaks=c(10000, 20000, 30000, 40000,
   #                        50000, 70000, 100000))+
-  scale_y_continuous(limits=c(0, NA))+
+  scale_y_log10()+   annotation_logticks(sides="l")+   
   scale_x_continuous(limits=c(NA, NA), labels=scales::percent_format(accuracy = 1))+
   #annotation_logticks(sides="b")+
   theme_bw() +
@@ -918,7 +921,7 @@ p4<-ggplot(both, aes(x=limited_engl, y=pos_pc*1000)) +
   # scale_x_log10(limits=c(15000, 120000),
   #               breaks=c(10000, 20000, 30000, 40000,
   #                        50000, 70000, 100000))+
-  scale_y_continuous(limits=c(0, NA))+
+  scale_y_log10()+   annotation_logticks(sides="l")+   
   scale_x_continuous(limits=c(NA, NA), labels=scales::percent_format(accuracy = 1))+
   #annotation_logticks(sides="b")+
   theme_bw() +
@@ -935,7 +938,7 @@ p5<-ggplot(both, aes(x=no_healthins, y=pos_pc*1000)) +
   #               breaks=c(10000, 20000, 30000, 40000,
   #                        50000, 70000, 100000))+
   #annotation_logticks(sides="b")+
-  scale_y_continuous(limits=c(0, NA))+
+  scale_y_log10()+   annotation_logticks(sides="l")+   
   scale_x_continuous(limits=c(NA, NA), labels=scales::percent_format(accuracy = 1))+
   theme_bw() +
   labs(x="% with no Health Insurance\n (2014-2018)",
@@ -953,7 +956,7 @@ p6<-ggplot(both, aes(x=pct_overcrowded2, y=pos_pc*1000)) +
   # scale_x_log10(limits=c(15000, 120000),
   #               breaks=c(10000, 20000, 30000, 40000,
   #                        50000, 70000, 100000))+
-  scale_y_continuous(limits=c(0, NA))+
+  scale_y_log10()+   annotation_logticks(sides="l")+   
   scale_x_continuous(limits=c(NA, NA), labels=scales::percent_format(accuracy = 1))+
   #annotation_logticks(sides="b")+
   theme_bw() +
@@ -970,7 +973,7 @@ p7<-ggplot(both, aes(x=pct_overcrowded15, y=pos_pc*1000)) +
   # scale_x_log10(limits=c(15000, 120000),
   #               breaks=c(10000, 20000, 30000, 40000,
   #                        50000, 70000, 100000))+
-  scale_y_continuous(limits=c(0, NA))+
+  scale_y_log10()+   annotation_logticks(sides="l")+   
   scale_x_continuous(limits=c(NA, NA), labels=scales::percent_format(accuracy = 1))+
   #annotation_logticks(sides="b")+
   theme_bw() +
@@ -987,7 +990,7 @@ p8<-ggplot(both, aes(x=pct_overcrowded1, y=pos_pc*1000)) +
   # scale_x_log10(limits=c(15000, 120000),
   #               breaks=c(10000, 20000, 30000, 40000,
   #                        50000, 70000, 100000))+
-  scale_y_continuous(limits=c(0, NA))+
+  scale_y_log10()+   annotation_logticks(sides="l")+   
   scale_x_continuous(limits=c(NA, NA), labels=scales::percent_format(accuracy = 1))+
   #annotation_logticks(sides="b")+
   theme_bw() +
@@ -1005,7 +1008,7 @@ p9<-ggplot(both, aes(x=pct_service, y=pos_pc*1000)) +
   # scale_x_log10(limits=c(15000, 120000),
   #               breaks=c(10000, 20000, 30000, 40000,
   #                        50000, 70000, 100000))+
-  scale_y_continuous(limits=c(0, NA))+
+  scale_y_log10()+   annotation_logticks(sides="l")+   
   scale_x_continuous(limits=c(NA, NA), labels=scales::percent_format(accuracy = 1))+
   #annotation_logticks(sides="b")+
   theme_bw() +
@@ -1015,127 +1018,4 @@ p9<-ggplot(both, aes(x=pct_service, y=pos_pc*1000)) +
 pall<-(arrangeGrob(grobs=list(p1, p1b, p2b, p5, p8, p9), ncol=3, 
                    top=textGrob("Confirmed Cases per Zip Code in NYC", gp=gpar(fontsize=20,face="bold",font=8)),
                    bottom=textGrob("Source: NYHealth (github) and 5-year 2014-2018 ACS", gp=gpar(fontsize=10,font=8))))
-ggsave("tests_NYC4.pdf", pall, width=16, height=12/(20/15))
-
-model<-glm(positives~log(mhi)+I(no_healthins*20)+I(pct_black*20)+
-             I(pct_hisp*20)+I(limited_engl*20)+
-             I(no_healthins*20)+
-             I(pct_overcrowded15*20)+
-             I(pct_service*20)+
-             I(density/10000)+
-             offset(log(all)),
-           family="poisson", data=both) %>% 
-  tidy %>% 
-  mutate(lci=estimate-1.96*std.error,
-         uci=estimate+1.96*std.error,
-         estimate=exp(estimate),
-         lci=exp(lci),
-         uci=exp(uci)) %>% 
-  filter(term!="(Intercept)") %>% 
-  mutate(RR=paste0(format(estimate, digits=2, nsmall=2), "", " (",
-                   format(lci, digits=2, nsmall=2), "", ";",
-                   format(uci, digits=2, nsmall=2), "", ")")) %>% 
-  mutate(variable=case_when(
-    grepl("mhi", term) ~ "Median Household Income (1% increase)",
-    grepl("engl", term) ~ "% HH with Limited English Proficiency (5% increase)",
-    grepl("health", term) ~ "% Uninsured (5% increase)",
-    grepl("black", term) ~ "% Black (5% increase)",
-    grepl("hisp", term) ~ "% Hispanic (5% increase)",
-    grepl("ins", term) ~ "% Uninsured (5% increase)",
-    grepl("overcr", term) ~ "% Overcrowded [>1.5ppl/room] (5% increase)",
-    grepl("dens", term) ~ "Density (10k/sq.mi increase)",
-    grepl("service", term) ~ "% Service Workers (5% increase)",
-  )) %>% 
-  select(variable, RR)
-model
-
-lm((pct_pos)~log(mhi)+I(no_healthins*20)+I(pct_black*20)+
-     I(pct_hisp*20)+I(limited_engl*20)+
-     I(no_healthins*20)+
-     I(pct_overcrowded15*20)+
-     I(pct_service*20)+
-     I(density/10000),data=both) %>% 
-  glance
-
-model<-glm(positives~log(mhi)+I(no_healthins*20)+I(pct_black*20)+
-             I(pct_hisp*20)+I(limited_engl*20)+
-             I(pct_overcrowded15*20)+
-             I(pct_service*20)+
-             I(density/10000)+
-             I(tests_pc/5)+
-             offset(log(all)),
-           family="poisson", data=both) %>% 
-  tidy %>% 
-  mutate(lci=estimate-1.96*std.error,
-         uci=estimate+1.96*std.error,
-         estimate=exp(estimate),
-         lci=exp(lci),
-         uci=exp(uci)) %>% 
-  filter(term!="(Intercept)") %>% 
-  mutate(RR=paste0(format(estimate, digits=2, nsmall=2), "", " (",
-                   format(lci, digits=2, nsmall=2), "", ";",
-                   format(uci, digits=2, nsmall=2), "", ")")) %>% 
-  mutate(variable=case_when(
-    grepl("mhi", term) ~ "Median Household Income (1% increase)",
-    grepl("engl", term) ~ "% HH with Limited English Proficiency (5% increase)",
-    grepl("health", term) ~ "% Uninsured (5% increase)",
-    grepl("black", term) ~ "% Black (5% increase)",
-    grepl("hisp", term) ~ "% Hispanic (5% increase)",
-    grepl("ins", term) ~ "% Uninsured (5% increase)",
-    grepl("overcr", term) ~ "% Overcrowded [>1.5ppl/room] (5% increase)",
-    grepl("dens", term) ~ "Density (10k/sq.mi increase)",
-    grepl("service", term) ~ "% Service Workers (5% increase)",
-    grepl("tests_pc", term) ~ "Tests per capita (+5 per 1,000)"
-  )) %>% 
-  select(variable, RR)
-model
-
-glm(positives~log(mhi)+I(no_healthins*20)+
-      I(pct_nhwhite*20)+I(limited_engl*20)+
-      I(pct_overcrowded15*20)+
-      I(pct_service*20)+
-      I(pct_college*20)+
-      I(density/10000)+
-      offset(log(all)),
-    family="poisson", data=both) %>% 
-  tidy %>% mutate(lci=estimate-1.96*std.error,
-                  uci=estimate+1.96*std.error,
-                  estimate=exp(estimate),
-                  lci=exp(lci),
-                  uci=exp(uci))
-model<-glm(positives~log(mhi)+
-             I(pct_nhwhite*20)+
-             I(no_healthins*20)+
-             I(pct_overcrowded1*20)+
-             I(pct_service*20)+
-             I(pct_college*20)+
-             #I(tests_pc/5)+
-             offset(log(all)),
-           family="poisson", data=both) %>% 
-  tidy %>% 
-  mutate(lci=estimate-1.96*std.error,
-         uci=estimate+1.96*std.error,
-         estimate=exp(estimate),
-         lci=exp(lci),
-         uci=exp(uci)) %>% 
-  filter(term!="(Intercept)") %>% 
-  mutate(RR=paste0(format(estimate, digits=2, nsmall=2), "", " (",
-                   format(lci, digits=2, nsmall=2), "", ";",
-                   format(uci, digits=2, nsmall=2), "", ")")) %>% 
-  mutate(variable=case_when(
-    grepl("mhi", term) ~ "Median Household Income (1% increase)",
-    grepl("engl", term) ~ "% HH with Limited English Proficiency (5% increase)",
-    grepl("health", term) ~ "% Uninsured (5% increase)",
-    grepl("black", term) ~ "% Black (5% increase)",
-    grepl("white", term) ~ "% NH White (5% increase)",
-    grepl("hisp", term) ~ "% Hispanic (5% increase)",
-    grepl("ins", term) ~ "% Uninsured (5% increase)",
-    grepl("overcr", term) ~ "% Overcrowded [>1.5ppl/room] (5% increase)",
-    grepl("dens", term) ~ "Density (10k/sq.mi increase)",
-    grepl("college", term) ~ "% Complete College (5% increase)",
-    grepl("service", term) ~ "% Service Workers (5% increase)",
-    grepl("tests_pc", term) ~ "Tests per capita (+5 per 1,000)"
-  )) %>% 
-  select(variable, RR)
-model
-
+ggsave("results/NYC_Vars_Pos_pc.pdf", pall, width=16, height=12/(20/15))
