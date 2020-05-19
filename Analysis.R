@@ -784,7 +784,7 @@ cluster_maps<-map(c("pos_pc", "pct_pos", "tests_pc", "pc1"), function(outcome_va
       bbox<-bbox_ny
     }
     if (city_var=="New York City"){
-      shp_clusters<-merge(shp_zip_mod, data, by="GEOID", all.y=T, all.x=F) 
+      shp_clusters<-merge(shp_zip_mod, data, by="GEOID", all.y=T, all.x=F)
     } else {
       shp_clusters<-merge(shp_zip, data, by="GEOID", all.y=T, all.x=F) 
     }
@@ -848,4 +848,6 @@ apptable1<-loadings %>% spread(city, loading) %>%
                                   "pct_service", "pct_overcrowded1"))) %>% 
   arrange(var)
 fwrite(apptable1, file="Results/AppendixTable1.csv")
+
+
 
