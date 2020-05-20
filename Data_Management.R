@@ -484,7 +484,6 @@ shp_zip_mod<-shp_zip_mod %>% st_as_sf %>%
 
 
 save(all, loadings, 
-     shp_states, shp_place_il, shp_place_ny, shp_place_pa,
      shp_zip, shp_zip_mod,
      bbox_il, bbox_pa, bbox_ny,
      file="Data/clean_data.rdata")
