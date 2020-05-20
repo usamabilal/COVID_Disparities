@@ -6,50 +6,115 @@ get_legend<-function(plot){
 }
 library(tidyverse)
 library(data.table)
-library(tidycensus)
-library(readxl)
-library(broom)
 library(gridExtra)
-library(foreign)
 library(lubridate)
 library(scales)
-library(grid)
 library(rgdal)
+library(grid)
 library(rgeos)
 library(sf)
 library(rmapshaper)
 library(spdep)
-
+library(CARBayes)
+library(furrr)
+select<-dplyr::select
 options(scipen=999)
 load("data/clean_data.rdata")
 
 table(all$date, all$city)
 # last available date is May 18th for the three cities
 
+all<-all %>% arrange(city, GEOID, date)
+# get neighbors for each city
+neighbors_id<-all %>%
+  ungroup() %>% 
+  filter(date==max(date)) %>% 
+  group_by(city) %>% 
+  group_keys()
+neighbors<-all %>% 
+  ungroup() %>% 
+  filter(date==max(date)) %>% 
+  group_by(city) %>% 
+  group_map(~{
+    # get neighbors
+    if (.y$city=="New York City"){
+      shp_clusters<-merge(shp_zip_mod, .x, by="GEOID", all.y=T, all.x=F) 
+      nbmat<-poly2nb(shp_clusters)
+      # fix roosvelt island
+      nbmat[[which(shp_clusters$GEOID==10044)]]<-which(shp_clusters$GEOID%in%c(11106, 11101))
+      nbmat[[which(shp_clusters$GEOID==11106)]]<-c(nbmat[[which(shp_clusters$GEOID==11106)]], which(shp_clusters$GEOID%in%c(10044)))
+      nbmat[[which(shp_clusters$GEOID==11101)]]<-c(nbmat[[which(shp_clusters$GEOID==11101)]], which(shp_clusters$GEOID%in%c(10044)))
+      # also fix NB separated because of odd MODZCTA shape: 11101 and 11222
+      nbmat[[which(shp_clusters$GEOID==11101)]]<-c(nbmat[[which(shp_clusters$GEOID==11101)]], which(shp_clusters$GEOID%in%c(11222)))
+      nbmat[[which(shp_clusters$GEOID==11222)]]<-c(nbmat[[which(shp_clusters$GEOID==11222)]], which(shp_clusters$GEOID%in%c(11101)))
+    } else {
+      shp_clusters<-merge(shp_zip, .x, by="GEOID", all.y=T, all.x=F) 
+      nbmat<-poly2nb(shp_clusters %>% filter(!duplicated(GEOID)))
+    }
+    nbmat
+  })
+bycity_and_id<-all %>% 
+  ungroup() %>% 
+  group_by(city, date) %>% 
+  group_split(keep = T)
+
 # figure 3
-#.x<-all %>% filter(city=="Philadelphia", date==as_date("2020-03-21"))
-rateratios<-all %>% group_by(city, date) %>% 
-  group_modify(~{
-    .x$pc1<-as.numeric(scale(.x$pc1, scale=T, center=T))
-    m_tests_pc<-glm(all~pc1+offset(log(total_pop)), data=.x, family=poisson)
-    m_pct_pos<-glm(cbind(positives, all-positives)~pc1, data=.x, family=binomial(link="log"))
-    m_pos_pc<-glm(positives~pc1+offset(log(total_pop)), data=.x, family=poisson)
-    map2_dfr(list(m_tests_pc, m_pct_pos, m_pos_pc), 
-             c("tests_pc", "pct_pos", "pos_pc"),
-             function(model, id){
-               model %>% tidy %>% 
-                 filter(term=="pc1") %>% 
-                 select(estimate, std.error)%>% 
-                 mutate(type=id)
-             }) 
-  }) %>% 
+#temp<-bycity_and_id[[1]]
+plan(multiprocess)
+rateratios<-future_map_dfr(bycity_and_id, function(temp){
+  city_var<-unique(temp$city)
+  date_var<-unique(temp$date)
+  id<-which(neighbors_id$city==city_var)
+  nb_mat<-neighbors[[id]]
+  temp$pc1<-as.numeric(scale(temp$pc1, scale=T, center=T))
+  nb_matrix<-nb2mat(nb_mat,style = "B")
+  CAR_pos_pc <- S.CARbym(formula=positives~pc1+offset(log(total_pop)), 
+                         data=temp, 
+                         family="poisson", W=nb_matrix,
+                         burnin=20000, n.sample=100000, thin=10, 
+                         verbose=F)
+  CAR_tests_pc <- S.CARbym(formula=all~pc1+offset(log(total_pop)), 
+                           data=temp, 
+                           family="poisson", W=nb_matrix,
+                           burnin=20000, n.sample=100000, thin=10, 
+                           verbose=F)
+  # for pct pos, exclude those with 0 tests (infinite)
+  # just a few (42 in total across the 12823 observations)
+  if (any(temp$all==0)){
+    exclude<-which(temp$all==0)
+    nb_matrix<-nb_matrix[-exclude, -exclude]
+    temp<-temp %>% filter(all>0)  
+  }
+  CAR_pct_pos <- S.CARbym(formula=positives~pc1, 
+                          data=temp, 
+                          family="poisson", W=nb_matrix,
+                          burnin=20000, n.sample=100000, thin=10, 
+                          verbose=F)
+  results<-map2_dfr(list(CAR_tests_pc, CAR_pct_pos, CAR_pos_pc), 
+           c("tests_pc", "pct_pos", "pos_pc"),
+           function(model, id){
+             model<-model$summary.results%>% as.data.frame
+             model$term<-rownames(model)
+             model %>% 
+               filter(term=="pc1") %>% 
+               rename(rr=Median,
+                      lci=`2.5%`,
+                      uci=`97.5%`) %>% 
+               select(rr,lci, uci)%>% 
+               mutate(rr=exp(rr),
+                      lci=exp(lci),
+                      uci=exp(uci)) %>% 
+               mutate(type=id)
+           }) %>% 
+    mutate(city=city_var,
+           date=date_var)
+  results
+})
+rateratios<-rateratios %>% 
   mutate(type2=ifelse(type=="pct_pos", "Positivity rate",
-                      ifelse(type=="pos_pc", "Cumulative incidence per 1,000",
-                             "Tests per 1,000")),
-         lci=exp(estimate-1.96*std.error),
-         uci=exp(estimate+1.96*std.error),
-         rr=exp(estimate)) %>% 
-  ungroup() 
+                      ifelse(type=="pos_pc", "Cumulative incidence",
+                             "Tests per capita")))
+
 # for abstract
 rateratios %>% 
   filter(city=="Philadelphia",
@@ -60,12 +125,14 @@ city_label<-c("Philadelphia", "New York City", "Chicago")
 names(city_label)<-c("Philadelphia", "New York City", "Chicago")
 ggplot(rateratios, aes(x=date, y=rr, group=type)) +
   geom_hline(yintercept = 1, lty=2)+
-  geom_ribbon(aes(ymin=lci, ymax=uci, fill=type2))+
+  geom_ribbon(aes(ymin=lci, ymax=uci, fill=type2),
+              alpha=0.3)+
   geom_line()+
-  scale_y_continuous(trans=log_trans(), breaks=c(0.66, 0.8, 1, 1.25, 1.5))+
+  scale_y_continuous(trans=log_trans(), breaks=c(0.66, 0.8, 1, 1.25, 1.5, 2))+
   scale_x_date(breaks="1 week")+
   scale_fill_discrete(name="")+
-  guides(shape=guide_legend(override.aes=list(size=5)))+
+  guides(shape=guide_legend(override.aes=list(size=5)),
+         fill=guide_legend(override.aes=list(alpha=1)))+
   labs(x="Date", y="Rate Ratio (95% CI) per 1 SD increase in Deprivation Index",
        #title="Correlation of Zip Code Deprivation and COVID-19 Testing by City, Date and Outcome",
        caption="Source: NYCDOH, IDPH, PDPH, and ACS")+
@@ -104,18 +171,19 @@ ggplot(cases_city, aes(x=city_ci, y=rr, group=paste0(type, city))) +
   geom_hline(yintercept = 1, lty=2)+
   #geom_line(aes(color=city)) +
   #geom_point(aes(pch=type, fill=city), color="black", size=2)+
-  geom_ribbon(aes(ymin=lci, ymax=uci, fill=city))+
+  geom_ribbon(aes(ymin=lci, ymax=uci, fill=city), alpha=0.3)+
   geom_line()+
   scale_x_log10()+
   scale_y_continuous(trans=log_trans(), breaks=c(0.66, 0.8, 1, 1.25, 1.5))+
   annotation_logticks(sides="b")+
   scale_fill_brewer(name="", type="qual", palette=2)+
   scale_shape_manual(values=c(21, 22, 23),name="",
-                     labels=c("Positivity rate", "Cumulative incidence per 1,000", "Tests per 1,000"))+
+                     labels=c("Positivity rate", "Cumulative incidence", "Tests per capita"))+
   scale_linetype_manual(values=c(21, 22, 23),name="",
-                        labels=c("Positivity rate", "Cumulative incidence per 1,000", "Tests per 1,000"))+
+                        labels=c("Positivity rate", "Cumulative incidence", "Tests per capita"))+
   guides(shape=guide_legend(override.aes=list(size=5)),
-         color=guide_legend(override.aes=list(size=5)))+
+         color=guide_legend(override.aes=list(size=5)),
+         fill=guide_legend(override.aes=list(alpha=1)))+
   labs(x="Cumulative incidence per 100,000", 
        y="Rate Ratio (95% CI) per 1 SD increase in Deprivation Index",
        #title="Correlation of Zip Code Deprivation and COVID-19 Testing by City, Date and Outcome",
@@ -132,7 +200,7 @@ ggplot(cases_city, aes(x=city_ci, y=rr, group=paste0(type, city))) +
         strip.background = element_blank(),
         panel.grid.major.x = element_blank(),
         panel.grid.minor.y = element_blank())
-ggsave("Results/AppendixFigure5.pdf", width=10, height=7.5)
+ggsave("Results/AppendixFigure5.pdf", width=12, height=7.5)
 
 
 smoother<-stat_smooth(method="lm", se=F)
@@ -157,7 +225,7 @@ plots<-all %>% group_by(city) %>%
       annotation_logticks(sides="l")+
       theme_bw() +
       labs(x="Deprivation Index (SD)",
-           y="Tests per 1,000 pop",
+           y="Tests per 1,000",
            title="")+
       theme(axis.text=element_text(color="black"))
     p2<-ggplot(.x, aes(x=pc1, y=pct_pos)) +
@@ -194,7 +262,7 @@ plots<-all %>% group_by(city) %>%
       annotation_logticks(sides="l")+
       theme_bw() +
       labs(x="Deprivation Index (SD)",
-           y="Positive tests per 1,000 pop",
+           y="Cumulative incidence per 1,000",
            title="")+
       theme(axis.text=element_text(color="black"))
     title1<-unique(.x$date)
@@ -241,7 +309,7 @@ part1<-last_date %>% group_by(var) %>%
       plot<-plot+
         scale_x_log10(breaks=c(10000, 20000, 30000,
                                50000, 70000, 100000, 200000))+
-        labs(y="Tests per 1,000")
+        labs(y="Tests per capita")
     }
     plot
   })
@@ -290,7 +358,7 @@ part3<-last_date %>% group_by(var) %>%
       plot<-plot+
         scale_x_log10(breaks=c(10000, 20000, 30000,
                                50000, 70000, 100000, 200000))+
-        labs(y="Positives per 1,000")
+        labs(y="Cumulative Incidence")
     }
     plot
   })
@@ -313,7 +381,7 @@ legend<-ggplot(last_date, aes(x=value, y=pos_pc)) +
 legend<-get_legend(legend)
 pall<-arrangeGrob(grobs=list(pall, legend), ncol=1,heights=c(10, 1))
 ggsave("Results/Figure1.pdf", pall, width=20, height=12.5)
-
+plot(pall)
 # table 1
 vars<-c("mhi", "pct_nhwhite", 
         "pct_college", "no_healthins", 
@@ -322,38 +390,71 @@ last_date<-all %>% filter(date==as_date("2020-05-18")) %>%
   select(GEOID, city, positives, all, total_pop, all_of(vars)) %>% 
   gather(var, value, -GEOID, -city, -positives,-all, -total_pop)
 #.x<-last_date %>% filter(city=="Philadelphia", var=="pct_college")
+#.y<-data.frame(city="Philadelphia",stringsAsFactors=F)
 table1<-last_date %>% 
   mutate(var=factor(var, levels=c(vars))) %>%
   mutate(value=ifelse(var=="mhi", log(value), value)) %>% 
   group_by(city, var) %>% 
   group_modify(~{
     .x$value<-as.numeric(scale(.x$value, scale=T, center=T))
-    m_tests_pc<-glm(all~value+offset(log(total_pop)), data=.x, family="poisson")
-    m_pct_pos<-glm(positives~value+offset(log(all)), data=.x, family="poisson")
-    m_pos_pc<-glm(positives~value+offset(log(total_pop)), data=.x, family="poisson")
-    map2_dfr(list(m_tests_pc, m_pct_pos, m_pos_pc), 
-             c("tests_pc", "pct_pos", "pos_pc"),
-             function(model, id){
-               model %>% tidy %>% 
-                 filter(term=="value") %>% 
-                 select(estimate, std.error)%>% 
-                 mutate(type=id)
-             }) %>% 
-      mutate(lci=exp(estimate-1.96*std.error),
-             uci=exp(estimate+1.96*std.error),
-             rr=exp(estimate),
-             coef=paste0(format(rr, digits=2, nsmall=2),
+    id<-which(neighbors_id$city==.y$city)
+    nb_mat<-neighbors[[id]]
+    nb_matrix<-nb2mat(nb_mat,style = "B")
+    CAR_pos_pc <- S.CARbym(formula=positives~value+offset(log(total_pop)), 
+                           data=.x, 
+                           family="poisson", W=nb_matrix,
+                           burnin=20000, n.sample=100000, thin=10, 
+                           verbose=F)
+    CAR_tests_pc <- S.CARbym(formula=all~value+offset(log(total_pop)), 
+                             data=.x, 
+                             family="poisson", W=nb_matrix,
+                             burnin=20000, n.sample=100000, thin=10, 
+                             verbose=F)
+    # for pct pos, exclude those with 0 tests (infinite % pct pos)
+    # just a few (42 in total across the 12823 observations)
+    if (any(.x$all==0)){
+      exclude<-which(.x$all==0)
+      nb_matrix<-nb_matrix[-exclude, -exclude]
+      .x<-.x %>% filter(all>0)  
+    }
+    CAR_pct_pos <- S.CARbym(formula=positives~value, 
+                            #trials = .x$all,
+                            data=.x, 
+                            family="poisson", W=nb_matrix,
+                            burnin=20000, n.sample=100000, thin=10, 
+                            MALA=F,verbose=T)
+    results<-map2_dfr(list(CAR_tests_pc, CAR_pct_pos, CAR_pos_pc), 
+                      c("tests_pc", "pct_pos", "pos_pc"),
+                      function(model, id){
+                        model<-model$summary.results%>% as.data.frame
+                        model$term<-rownames(model)
+                        model %>% 
+                          filter(term=="value") %>% 
+                          rename(rr=Median,
+                                 lci=`2.5%`,
+                                 uci=`97.5%`) %>% 
+                          select(rr,lci, uci)%>% 
+                          mutate(rr=exp(rr),
+                                 lci=exp(lci),
+                                 uci=exp(uci)) %>% 
+                          mutate(type=id)
+                      }) %>% 
+      mutate(coef=paste0(format(rr, digits=2, nsmall=2),
                          "(",
                          format(lci, digits=2, nsmall=2),
                          ";",
                          format(uci, digits=2, nsmall=2),
-                         ")")) %>% 
+                         ")")) %>%
       select(type, coef) %>% 
       spread(type, coef)
+    results
   }) %>% 
   select(city, var, tests_pc, pct_pos, pos_pc)
+table1
 fwrite(table1, "results/table1.csv")
 
+
+ 
 smoother<-stat_smooth(method="lm", se=F)
 #.x<-all %>% ungroup() %>% filter(city=="Philadelphia", date==max(date));.y<-data.frame(city="1PHL", date="0407", stringsAsFactors = F)
 plots_pct_pos<-all %>% group_by(city) %>% 
@@ -474,9 +575,9 @@ plots_pos_pc<-all %>% group_by(city) %>%
   group_map(~{
     title1<-unique(.x$date)
     title2<-.y$city
-    title<-paste0("COVID-19 Positives per 1,000 in Zip Codes of ", title2, " by ", title1)
+    title<-paste0("COVID-19 Cumulative Incidence in Zip Codes of ", title2, " by ", title1)
     smoother<-stat_smooth(method="lm")
-    ylab<-"Confirmed cases per 1,000 people"
+    ylab<-"Cumulative incidence per 1,000 people"
     p1<-ggplot(.x, aes(x=mhi, y=pos_pc)) +
       smoother+
       geom_point()+
@@ -566,37 +667,8 @@ vars<-c("mhi", "pct_nhwhite",
 last_date<-all %>% filter(date==as_date("2020-05-18")) %>% 
   select(GEOID, city, tests_pc,pct_pos, pos_pc, all_of(vars)) %>% 
   gather(var, value, -GEOID, -city, -tests_pc,-pct_pos, -pos_pc)
-# first generic shapefiles
-# states
-shp_states = readOGR('Data/stateshp/', 'cb_2018_us_state_500k')
-shp_states$STATEFP<-as.numeric(as.character(shp_states$STATEFP))
-shp_states<-shp_states[grepl("Delaware|New Jersey|Pennsylvania|New York|Connecticut|Indiana|Illinois", shp_states$NAME),]
-shp_states<-ms_simplify(shp_states)
-# place, to set boundaries
-# PA
-shp_place_pa = readOGR('Data/PHL/place_pa/', 'cb_2018_42_place_500k')
-shp_place_pa<-shp_place_pa[shp_place_pa$NAME=="Philadelphia",]
-bbox_pa<-st_bbox(shp_place_pa)
-# IL
-shp_place_il = readOGR('Data/Chicago/place_il/', 'cb_2018_17_place_500k')
-shp_place_il<-shp_place_il[shp_place_il$NAME=="Chicago",]
-bbox_il<-st_bbox(shp_place_il)
-# NY
-shp_place_ny = readOGR('Data/NYC/place_ny/', 'cb_2018_36_place_500k')
-shp_place_ny<-shp_place_ny[shp_place_ny$NAME=="New York",]
-bbox_ny<-st_bbox(shp_place_ny)
-# zcta (all)
-shp_zip<-readOGR('Data/zipcodeshp/', 'cb_2018_us_zcta510_500k')
-shp_zip$GEOID<-as.numeric(as.character(shp_zip$ZCTA5CE10))
-shp_zip<-shp_zip %>% st_as_sf
-# get modified ZCTA from NYC
-shp_zip_mod<-readOGR('Data/NYC/Geography-resources/', 'MODZCTA_2010')
-shp_zip_mod$GEOID<-as.numeric(as.character(shp_zip_mod$MODZCTA))
-shp_zip_mod<-shp_zip_mod %>% st_as_sf %>% 
-  st_transform(crs=st_crs(shp_place_ny))
-# modified zcta for NYC
-city_var="New York City"
 
+#city_var="New York City"
 maps<-map(c("Chicago", "New York City", "Philadelphia"), function(city_var){
   data<-last_date %>% 
     filter(city==city_var, var=="pc1") %>% 
@@ -619,11 +691,11 @@ maps<-map(c("Chicago", "New York City", "Philadelphia"), function(city_var){
     geom_sf(data=shp_with_data, size=.1,
             aes(geometry=geometry, fill=pos_pc))+
     scale_fill_binned(low="white", high="red", 
-                      name="Positives per 1,000")+
+                      name="Cumulative incidence")+
     coord_sf(xlim = c(bbox["xmin"], bbox["xmax"]),
              ylim = c(bbox["ymin"], bbox["ymax"]), expand = FALSE) +
     guides(size=F, alpha=F)+
-    labs(title="Positives per capita") +
+    labs(title="Cumulative Incidence") +
     theme_void()+
     theme(plot.title = element_text(size=20, face="bold", hjust=.5),
           panel.background = element_rect(fill = "white", color=NA),
@@ -713,7 +785,7 @@ maps_v2<-map(c("Chicago", "New York City", "Philadelphia"), function(city_var){
     coord_sf(xlim = c(bbox["xmin"], bbox["xmax"]),
              ylim = c(bbox["ymin"], bbox["ymax"]), expand = FALSE) +
     guides(alpha=F, size=F, fill=F)+
-    labs(title=ifelse(city_var=="Chicago", "Positives per Capita", "")) +
+    labs(title=ifelse(city_var=="Chicago", "Cumulative Incidence", "")) +
     theme_void()+
     theme(plot.title = element_text(size=20, face="bold", hjust=.5),
           panel.background = element_rect(fill = "white", color=NA),
@@ -766,7 +838,7 @@ last_date<-all %>% filter(date==as_date("2020-05-18")) %>%
   filter(var=="pc1") %>% 
   select(city, GEOID, pct_pos, tests_pc, pos_pc, value) %>% 
   rename(pc1=value)
-
+#outcome_var="pos_pc";city_var="New York City"
 cluster_maps<-map(c("pos_pc", "pct_pos", "tests_pc", "pc1"), function(outcome_var){
   maps_temp<-map(c("Chicago", "New York City", "Philadelphia"), function(city_var){
     data<-last_date %>% 
@@ -798,9 +870,9 @@ cluster_maps<-map(c("pos_pc", "pct_pos", "tests_pc", "pc1"), function(outcome_va
       outcome_var=="tests_pc" ~ c("Low testing", "High testing"),
       outcome_var=="pc1" ~ c("Low deprivation", "High deprivation")
     )
-    
-    map_nbq <-poly2nb(shp_clusters) # Creates list of neighbors to each CSA
-    map_nbq_w <-nb2listw(include.self(map_nbq), zero.policy = T) # Creates list of neighbors and weights. Weight = 1/number of neighbors.
+    # get neighborhood matrix (see above)
+    map_nbq<-neighbors[[which(neighbors_id$city==city_var)]]
+    map_nbq_w <-nb2listw(include.self(map_nbq), zero.policy = T) 
     shp_clusters<-shp_clusters %>% 
       mutate(g=localG(outcome, map_nbq_w),
              g_p_adj=p.adjustSP(pnorm(2*(abs(g)), lower.tail=FALSE),map_nbq, "bonferroni"),
@@ -835,7 +907,7 @@ cluster_maps<-map(c("pos_pc", "pct_pos", "tests_pc", "pc1"), function(outcome_va
   pall<-arrangeGrob(grobs=list(pall, legend), nrow=2, heights=c(10, 1))
   pall
 })
-ggsave("results/Figure5.pdf", cluster_maps[[1]], width=20, height=7.5)
+ggsave("results/Figure4.pdf", cluster_maps[[1]], width=20, height=7.5)
 ggsave("results/AppendixFigure6.pdf", cluster_maps[[2]], width=20, height=7.5)
 ggsave("results/AppendixFigure7.pdf", cluster_maps[[3]], width=20, height=7.5)
 ggsave("results/AppendixFigure8.pdf", cluster_maps[[4]], width=20, height=7.5)

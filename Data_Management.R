@@ -14,6 +14,7 @@ library(rgdal)
 library(rgeos)
 library(sf)
 options(scipen=999)
+select<-dplyr::select
 # only need to run these two commands once
 # download.file("https://www2.census.gov/geo/tiger/GENZ2018/shp/cb_2018_us_zcta510_500k.zip",
 #               destfile ="Data/cb_2018_us_zcta510_500k.zip" )
@@ -268,6 +269,14 @@ nyc2<-map2_dfr(history, dates3, function(file, date){
 # (big jump in cases, and was fixed on 27)
 nyc<-bind_rows(nyc1, nyc2)
 nyc<-nyc %>% filter(date!=as_date("2020-04-26"))
+# make sure all zip codes are included every date
+# if not, set their number of tests to 0
+template<-expand.grid(GEOID=unique(nyc$GEOID),
+                      date=unique(nyc$date), stringsAsFactors = F)
+nyc<-full_join(nyc, template) %>% 
+  mutate(positives=replace_na(positives, 0),
+         all=replace_na(all, 0))
+
 
 # get philadelphia data over time
 # first, data obtained by april 24th with all cases up to that date
@@ -324,6 +333,14 @@ phl<-map_dfr(history, function(file){
 })
 
 phl<-bind_rows(phl, phl1)
+# make sure all zip codes are included every date
+# if not, set their number of tests to 0
+template<-expand.grid(GEOID=unique(phl$GEOID),
+                      date=unique(phl$date), stringsAsFactors = F)
+phl<-full_join(phl, template) %>% 
+  mutate(positives=replace_na(positives, 0),
+         all=replace_na(all, 0))
+
 
 # get chicago at two time points
 # get place dataset for Illinois
@@ -368,6 +385,13 @@ chicago2<-fread("Data/Chicago/Chicago_Reporter/il-covid-counts-by-zipcode-5_18_2
   filter(!is.na(all),
          GEOID%in%chicago_zctas)
 chicago<-bind_rows(chicago1, chicago2)
+# make sure all zip codes are included every date
+# if not, set their number of tests to 0
+template<-expand.grid(GEOID=unique(chicago$GEOID),
+                      date=unique(chicago$date), stringsAsFactors = F)
+chicago<-full_join(chicago, template) %>% 
+  mutate(positives=replace_na(positives, 0),
+         all=replace_na(all, 0))
 
 all<-bind_rows(phl %>% 
             mutate(city="Philadelphia") %>% 
@@ -385,6 +409,7 @@ all<-bind_rows(phl %>%
   mutate(pct_pos=positives/all,
          pos_pc=positives/total_pop*1000,
          tests_pc=all/total_pop*1000)
+table(all$date, all$city)
 
 # PCA to get first component. City-stratified
 pca<-all %>% group_by(city) %>% 
@@ -408,9 +433,8 @@ loadings<-all %>% group_by(city) %>%
   })
 
 all<-all %>% full_join(pca)
-save(all, loadings, file="Data/clean_data.rdata")
 
-
+# download and load geo data
 # download SHPs once
 # counties  shp
 # download.file("https://www2.census.gov/geo/tiger/GENZ2018/shp/cb_2018_us_county_500k.zip",
@@ -428,3 +452,39 @@ save(all, loadings, file="Data/clean_data.rdata")
 # download.file("https://www2.census.gov/geo/tiger/GENZ2018/shp/cb_2018_36_place_500k.zip",
 #               destfile ="Data/cb_2018_36_place_500k.zip" )
 # unzip("Data/cb_2018_36_place_500k.zip", exdir = "Data/NYC/place_ny/")
+
+# load generic shapefiles
+# states
+shp_states = readOGR('Data/stateshp/', 'cb_2018_us_state_500k')
+shp_states$STATEFP<-as.numeric(as.character(shp_states$STATEFP))
+shp_states<-shp_states[grepl("Delaware|New Jersey|Pennsylvania|New York|Connecticut|Indiana|Illinois", shp_states$NAME),]
+shp_states<-ms_simplify(shp_states)
+# place, to set boundaries
+# PA
+shp_place_pa = readOGR('Data/PHL/place_pa/', 'cb_2018_42_place_500k')
+shp_place_pa<-shp_place_pa[shp_place_pa$NAME=="Philadelphia",]
+bbox_pa<-st_bbox(shp_place_pa)
+# IL
+shp_place_il = readOGR('Data/Chicago/place_il/', 'cb_2018_17_place_500k')
+shp_place_il<-shp_place_il[shp_place_il$NAME=="Chicago",]
+bbox_il<-st_bbox(shp_place_il)
+# NY
+shp_place_ny = readOGR('Data/NYC/place_ny/', 'cb_2018_36_place_500k')
+shp_place_ny<-shp_place_ny[shp_place_ny$NAME=="New York",]
+bbox_ny<-st_bbox(shp_place_ny)
+# zcta (all)
+shp_zip<-readOGR('Data/zipcodeshp/', 'cb_2018_us_zcta510_500k')
+shp_zip$GEOID<-as.numeric(as.character(shp_zip$ZCTA5CE10))
+shp_zip<-shp_zip %>% st_as_sf
+# get modified ZCTA from NYC
+shp_zip_mod<-readOGR('Data/NYC/Geography-resources/', 'MODZCTA_2010')
+shp_zip_mod$GEOID<-as.numeric(as.character(shp_zip_mod$MODZCTA))
+shp_zip_mod<-shp_zip_mod %>% st_as_sf %>% 
+  st_transform(crs=st_crs(shp_place_ny))
+
+
+save(all, loadings, 
+     shp_states, shp_place_il, shp_place_ny, shp_place_pa,
+     shp_zip, shp_zip_mod,
+     bbox_il, bbox_pa, bbox_ny,
+     file="Data/clean_data.rdata")
