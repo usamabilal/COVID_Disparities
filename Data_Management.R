@@ -15,10 +15,56 @@ library(rgeos)
 library(sf)
 options(scipen=999)
 select<-dplyr::select
-# only need to run these two commands once
-# download.file("https://www2.census.gov/geo/tiger/GENZ2018/shp/cb_2018_us_zcta510_500k.zip",
-#               destfile ="Data/cb_2018_us_zcta510_500k.zip" )
-# unzip("Data/cb_2018_us_zcta510_500k.zip", exdir = "Data/zipcodeshp/")
+
+# download and load geo data
+# download SHPs once
+# counties  shp
+# download.file("https://www2.census.gov/geo/tiger/GENZ2018/shp/cb_2018_us_county_500k.zip",
+#               destfile ="Data/cb_2018_us_county_500k.zip" )
+# unzip("Data/cb_2018_us_county_500k.zip", exdir = "Data/countyshp/")
+# # states shp
+# download.file("https://www2.census.gov/geo/tiger/GENZ2018/shp/cb_2018_us_state_500k.zip",
+#               destfile ="Data/cb_2018_us_state_500k.zip" )
+# unzip("Data/cb_2018_us_state_500k.zip", exdir = "Data/stateshp/")
+# # places for PA
+# download.file("https://www2.census.gov/geo/tiger/GENZ2018/shp/cb_2018_42_place_500k.zip",
+#               destfile ="Data/cb_2018_42_place_500k.zip" )
+# unzip("Data/cb_2018_42_place_500k.zip", exdir = "Data/PHL/place_pa/")
+# # places for NY
+# download.file("https://www2.census.gov/geo/tiger/GENZ2018/shp/cb_2018_36_place_500k.zip",
+#               destfile ="Data/cb_2018_36_place_500k.zip" )
+# unzip("Data/cb_2018_36_place_500k.zip", exdir = "Data/NYC/place_ny/")
+
+# load generic shapefiles
+# states
+shp_states = readOGR('Data/stateshp/', 'cb_2018_us_state_500k')
+shp_states$STATEFP<-as.numeric(as.character(shp_states$STATEFP))
+shp_states<-shp_states[grepl("Delaware|New Jersey|Pennsylvania|New York|Connecticut|Indiana|Illinois", shp_states$NAME),]
+shp_states<-ms_simplify(shp_states)
+# place, to set boundaries
+# PA
+shp_place_pa = readOGR('Data/PHL/place_pa/', 'cb_2018_42_place_500k')
+shp_place_pa<-shp_place_pa[shp_place_pa$NAME=="Philadelphia",]
+bbox_pa<-st_bbox(shp_place_pa)
+# IL
+shp_place_il = readOGR('Data/Chicago/place_il/', 'cb_2018_17_place_500k')
+shp_place_il<-shp_place_il[shp_place_il$NAME=="Chicago",]
+bbox_il<-st_bbox(shp_place_il)
+# NY
+shp_place_ny = readOGR('Data/NYC/place_ny/', 'cb_2018_36_place_500k')
+shp_place_ny<-shp_place_ny[shp_place_ny$NAME=="New York",]
+bbox_ny<-st_bbox(shp_place_ny)
+# zcta (all)
+shp_zip<-readOGR('Data/zipcodeshp/', 'cb_2018_us_zcta510_500k')
+shp_zip$GEOID<-as.numeric(as.character(shp_zip$ZCTA5CE10))
+shp_zip<-shp_zip %>% st_as_sf
+# get modified ZCTA from NYC
+shp_zip_mod<-readOGR('Data/NYC/Geography-resources/', 'MODZCTA_2010')
+shp_zip_mod$GEOID<-as.numeric(as.character(shp_zip_mod$MODZCTA))
+shp_zip_mod<-shp_zip_mod %>% st_as_sf %>% 
+  st_transform(crs=st_crs(shp_place_ny))
+
+# load area and transform to miles
 area<-read.dbf("Data/zipcodeshp/cb_2018_us_zcta510_500k.dbf") %>% 
   mutate(GEOID=as.numeric(as.character(GEOID10)),
          area=ALAND10/1000000/2.59) %>% 
@@ -28,12 +74,8 @@ area<-read.dbf("Data/zipcodeshp/cb_2018_us_zcta510_500k.dbf") %>%
 # census_api_key(key="xxx", install = T)
 # use this dataset to check variable names
 vars<-load_variables(year=2018, "acs5")
-# example:
-vars %>% filter(grepl("foreign", concept, ignore.case=T))
-# healthcare workers:
-vars %>% filter(grepl("C24010", name), grepl("health", label, ignore.case=T)) %>% pull(name)
 # get data at the zipcode level and process
-zcta_data<-get_acs(geography = "zcta",
+zcta_data_raw<-get_acs(geography = "zcta",
                       variables=c(
                         # median household income
                         "B19013_001",
@@ -75,8 +117,10 @@ zcta_data<-get_acs(geography = "zcta",
                       year=2018) %>% 
   select(GEOID, variable, estimate) %>% 
   spread(variable, estimate) %>% 
+  mutate(GEOID=as.numeric(GEOID))
+# do some data management to create indicators
+zcta_data<-zcta_data_raw %>% 
   rowwise() %>% 
-  # do some data management to create indicators
   mutate(mhi=B19013_001,
          pct_hisp=B03002_012/B03002_001,
          pct_black=B03002_004/B03002_001,
@@ -106,53 +150,9 @@ zcta_data<-get_acs(geography = "zcta",
          pct_noncitizen, pct_foreignborn) %>% 
   left_join(area) %>% 
   mutate(density=total_pop/area)
-
 # for NYC: get data at the "modified ZCTA"-level
 cw<-fread("DAta/NYC/Geography-resources/ZCTA-to-MODZCTA.csv")
-# get data at the zipcode level and process
-modified_zcta<-get_acs(geography = "zcta",
-                      variables=c(
-                        # median household income
-                        "B19013_001",
-                        # education
-                        "B15003_022","B15003_023","B15003_024","B15003_025",
-                        "B15003_001",
-                        # citizenship
-                        "B05001_001", "B05001_006",
-                        # foreign born
-                        "B06001_001", "B06001_049",
-                        # race/ethnicity
-                        "B03002_001", 
-                        "B03002_003", 
-                        "B03002_012", 
-                        "B03002_004",
-                        # limited english stuff
-                        "C16002_001","C16002_004", "C16002_007", 
-                        "C16002_010", "C16002_013",
-                        # health insurance (uninsured)
-                        "B27010_001","B27010_017", "B27010_033", "B27010_050", "B27010_066",
-                        # healthcare workers
-                        "C24010_001","C24010_016","C24010_017", 
-                        "C24010_018","C24010_020",
-                        "C24010_052","C24010_053",
-                        "C24010_054","C24010_056",
-                        # food service, personal care, and service ocupations
-                        "C24010_024","C24010_060","C24010_026","C24010_062",
-                        # overcrowding denominator
-                        "B25014_001", 
-                        #overcrowding 1 and more
-                        "B25014_005", "B25014_011",
-                        #overcrowding 1.5more
-                        "B25014_006", "B25014_012",
-                        #overcrowding 2more
-                        "B25014_007", "B25014_013",
-                        # public transit excluding taxicab
-                        "B08006_001","B08006_008"
-                      ),
-                      year=2018) %>% 
-  select(GEOID, variable, estimate) %>%
-  mutate(GEOID=as.numeric(GEOID)) %>% 
-  spread(variable, estimate) %>% 
+modified_zcta<-zcta_data_raw %>% 
   right_join(cw %>% rename(GEOID=ZCTA)) %>% 
   # some of them are 0 pop
   filter(B03002_001>0)
@@ -265,10 +265,14 @@ nyc2<-map2_dfr(history, dates3, function(file, date){
   rename(positives=COVID_CASE_COUNT) %>% 
   select(GEOID, positives, all, date) 
 
-# apparently April 26th was somehow erroneous  according to github notes
+# April 26th was somehow erroneous  according to github notes
 # (big jump in cases, and was fixed on 27)
 nyc<-bind_rows(nyc1, nyc2)
 nyc<-nyc %>% filter(date!=as_date("2020-04-26"))
+# there also seems to be an error on 4-10, where zip code 11697 has two observations, one of them duplicated from the previous day
+# removing it manually
+nyc<-nyc %>% filter(!(date==as_date("2020-04-10")&GEOID==11697&positives==52))
+
 # make sure all zip codes are included every date
 # if not, set their number of tests to 0
 template<-expand.grid(GEOID=unique(nyc$GEOID),
@@ -348,15 +352,14 @@ phl<-full_join(phl, template) %>%
 #               destfile ="Data/cb_2018_17_place_500k.zip" )
 # unzip("Data/cb_2018_17_place_500k.zip", exdir = "Data/Chicago/place_il/")
 place_il<-readOGR('Data/Chicago/place_il/', 'cb_2018_17_place_500k') %>% st_as_sf
-zcta = readOGR('Data/zipcodeshp/', 'cb_2018_us_zcta510_500k') %>% st_as_sf
 chicago_zctas<-place_il %>% filter(grepl("^Chicago$", NAME, ignore.case=T)) %>% 
-  st_intersection(zcta) %>% 
+  st_intersection(shp_zip %>% st_as_sf) %>% 
   mutate(ZCTA5CE10=as.numeric(as.character(ZCTA5CE10))) %>% 
   pull(ZCTA5CE10)
 # Chicago data, downloaded from the Chicago Reporter
 files<-list.files("Data/Chicago/Chicago_Reporter/", pattern="json")
 #file<-files[[1]]
-chicago1<-map_dfr(files, function(file){
+chicago<-map_dfr(files, function(file){
   #print(file)
   temp<-fromJSON(paste0("Data/Chicago/Chicago_Reporter/",file))
   date<-temp[[1]]
@@ -372,19 +375,9 @@ chicago1<-map_dfr(files, function(file){
   mutate(GEOID=as.numeric(GEOID)) %>% 
   # remove the first few dates where there was no total testing data
   filter(!is.na(all),
-         GEOID%in%chicago_zctas)
-# add may 18th
-chicago2<-fread("Data/Chicago/Chicago_Reporter/il-covid-counts-by-zipcode-5_18_2020.csv") %>% 
-  rename(GEOID=zip,
-         positives=confirmed_cases,
-         all=total_tested) %>% 
-  select(date, GEOID, positives, all) %>% 
-  mutate(GEOID=as.numeric(GEOID),
-         date=ymd(date)) %>% 
-  # remove the first few dates where there was no total testing data
-  filter(!is.na(all),
-         GEOID%in%chicago_zctas)
-chicago<-bind_rows(chicago1, chicago2)
+         GEOID%in%chicago_zctas) %>% 
+  # there seems to be an issue with the first date with total testing (April 18th) and total testing, so excluding that date and including only from April 18th
+  filter(date>"2020-04-18")
 # make sure all zip codes are included every date
 # if not, set their number of tests to 0
 template<-expand.grid(GEOID=unique(chicago$GEOID),
@@ -392,6 +385,13 @@ template<-expand.grid(GEOID=unique(chicago$GEOID),
 chicago<-full_join(chicago, template) %>% 
   mutate(positives=replace_na(positives, 0),
          all=replace_na(all, 0))
+# correcting an issue with 60603 (small zipcode), that has 3 missing dates
+# 6/49 cases/tests on 5/12 -> missing for 3 days -> 6/53 cases/tests on 5/16
+# 2 options: exclude all together, impute a value
+# for now ,imputing the mean of the last date before missing and first date after missing
+chicago[chicago$date>="2020-05-13"&
+          chicago$date<="2020-05-15"&
+          chicago$GEOID==60603,c("positives", "all")]<-c(6,6,6,51,51,51)
 
 all<-bind_rows(phl %>% 
             mutate(city="Philadelphia") %>% 
@@ -410,6 +410,7 @@ all<-bind_rows(phl %>%
          pos_pc=positives/total_pop*1000,
          tests_pc=all/total_pop*1000)
 table(all$date, all$city)
+
 
 # PCA to get first component. City-stratified
 pca<-all %>% group_by(city) %>% 
@@ -433,55 +434,6 @@ loadings<-all %>% group_by(city) %>%
   })
 
 all<-all %>% full_join(pca)
-
-# download and load geo data
-# download SHPs once
-# counties  shp
-# download.file("https://www2.census.gov/geo/tiger/GENZ2018/shp/cb_2018_us_county_500k.zip",
-#               destfile ="Data/cb_2018_us_county_500k.zip" )
-# unzip("Data/cb_2018_us_county_500k.zip", exdir = "Data/countyshp/")
-# # states shp
-# download.file("https://www2.census.gov/geo/tiger/GENZ2018/shp/cb_2018_us_state_500k.zip",
-#               destfile ="Data/cb_2018_us_state_500k.zip" )
-# unzip("Data/cb_2018_us_state_500k.zip", exdir = "Data/stateshp/")
-# # places for PA
-# download.file("https://www2.census.gov/geo/tiger/GENZ2018/shp/cb_2018_42_place_500k.zip",
-#               destfile ="Data/cb_2018_42_place_500k.zip" )
-# unzip("Data/cb_2018_42_place_500k.zip", exdir = "Data/PHL/place_pa/")
-# # places for NY
-# download.file("https://www2.census.gov/geo/tiger/GENZ2018/shp/cb_2018_36_place_500k.zip",
-#               destfile ="Data/cb_2018_36_place_500k.zip" )
-# unzip("Data/cb_2018_36_place_500k.zip", exdir = "Data/NYC/place_ny/")
-
-# load generic shapefiles
-# states
-shp_states = readOGR('Data/stateshp/', 'cb_2018_us_state_500k')
-shp_states$STATEFP<-as.numeric(as.character(shp_states$STATEFP))
-shp_states<-shp_states[grepl("Delaware|New Jersey|Pennsylvania|New York|Connecticut|Indiana|Illinois", shp_states$NAME),]
-shp_states<-ms_simplify(shp_states)
-# place, to set boundaries
-# PA
-shp_place_pa = readOGR('Data/PHL/place_pa/', 'cb_2018_42_place_500k')
-shp_place_pa<-shp_place_pa[shp_place_pa$NAME=="Philadelphia",]
-bbox_pa<-st_bbox(shp_place_pa)
-# IL
-shp_place_il = readOGR('Data/Chicago/place_il/', 'cb_2018_17_place_500k')
-shp_place_il<-shp_place_il[shp_place_il$NAME=="Chicago",]
-bbox_il<-st_bbox(shp_place_il)
-# NY
-shp_place_ny = readOGR('Data/NYC/place_ny/', 'cb_2018_36_place_500k')
-shp_place_ny<-shp_place_ny[shp_place_ny$NAME=="New York",]
-bbox_ny<-st_bbox(shp_place_ny)
-# zcta (all)
-shp_zip<-readOGR('Data/zipcodeshp/', 'cb_2018_us_zcta510_500k')
-shp_zip$GEOID<-as.numeric(as.character(shp_zip$ZCTA5CE10))
-shp_zip<-shp_zip %>% st_as_sf
-# get modified ZCTA from NYC
-shp_zip_mod<-readOGR('Data/NYC/Geography-resources/', 'MODZCTA_2010')
-shp_zip_mod$GEOID<-as.numeric(as.character(shp_zip_mod$MODZCTA))
-shp_zip_mod<-shp_zip_mod %>% st_as_sf %>% 
-  st_transform(crs=st_crs(shp_place_ny))
-
 
 save(all, loadings, 
      shp_zip, shp_zip_mod,

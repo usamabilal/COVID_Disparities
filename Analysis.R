@@ -21,8 +21,17 @@ select<-dplyr::select
 options(scipen=999)
 load("data/clean_data.rdata")
 
+# setting analysis date to May 18th
+all<-all %>% filter(date<="2020-05-18")
 table(all$date, all$city)
-# last available date is May 18th for the three cities
+
+
+# days for each city
+all %>% group_by(city) %>% summarise(length(unique(date)))
+# list of variables we'll be looking at later on:
+vars<-c("mhi", "pct_nhwhite", 
+        "pct_college", "no_healthins", 
+        "pct_service", "pct_overcrowded1", "pc1")
 
 all<-all %>% arrange(city, GEOID, date)
 # get neighbors for each city
@@ -53,67 +62,70 @@ neighbors<-all %>%
     }
     nbmat
   })
-bycity_and_id<-all %>% 
+bycity_and_date<-all %>% 
   ungroup() %>% 
   group_by(city, date) %>% 
   group_split(keep = T)
+bycity_and_date_ids<-all %>% 
+  ungroup() %>% 
+  group_by(city, date) %>% 
+  group_keys()
 
-# figure 3
-#temp<-bycity_and_id[[1]]
+# figure 3 (takes long)
 plan(multiprocess)
-rateratios<-future_map_dfr(bycity_and_id, function(temp){
+rateratios<-future_map_dfr(bycity_and_date, function(temp){
   city_var<-unique(temp$city)
   date_var<-unique(temp$date)
   id<-which(neighbors_id$city==city_var)
   nb_mat<-neighbors[[id]]
   temp$pc1<-as.numeric(scale(temp$pc1, scale=T, center=T))
   nb_matrix<-nb2mat(nb_mat,style = "B")
-  CAR_pos_pc <- S.CARbym(formula=positives~pc1+offset(log(total_pop)), 
-                         data=temp, 
-                         family="poisson", W=nb_matrix,
-                         burnin=20000, n.sample=100000, thin=10, 
+  CAR_pos_pc <- S.CARleroux(formula=positives~pc1+offset(log(total_pop)),
+                         data=temp,
+                         family="poisson", W=nb_matrix,rho=1,
+                         burnin=20000, n.sample=100000, thin=10,
                          verbose=F)
-  CAR_tests_pc <- S.CARbym(formula=all~pc1+offset(log(total_pop)), 
-                           data=temp, 
-                           family="poisson", W=nb_matrix,
-                           burnin=20000, n.sample=100000, thin=10, 
+  CAR_tests_pc <- S.CARleroux(formula=all~pc1+offset(log(total_pop)),
+                           data=temp,
+                           family="poisson", W=nb_matrix,rho=1,
+                           burnin=20000, n.sample=100000, thin=10,
                            verbose=F)
   # for pct pos, exclude those with 0 tests (infinite)
   # just a few (42 in total across the 12823 observations)
   if (any(temp$all==0)){
     exclude<-which(temp$all==0)
     nb_matrix<-nb_matrix[-exclude, -exclude]
-    temp<-temp %>% filter(all>0)  
+    temp<-temp %>% filter(all>0)
   }
-  CAR_pct_pos <- S.CARbym(formula=positives~pc1, 
-                          data=temp, 
-                          family="poisson", W=nb_matrix,
-                          burnin=20000, n.sample=100000, thin=10, 
+  CAR_pct_pos <- S.CARleroux(formula=positives~pc1+offset(log(all)),
+                          data=temp,
+                          family="poisson", W=nb_matrix,rho=1,
+                          burnin=20000, n.sample=100000, thin=10,
                           verbose=F)
-  results<-map2_dfr(list(CAR_tests_pc, CAR_pct_pos, CAR_pos_pc), 
+  results<-map2_dfr(list(CAR_tests_pc, CAR_pct_pos, CAR_pos_pc),
            c("tests_pc", "pct_pos", "pos_pc"),
            function(model, id){
              model<-model$summary.results%>% as.data.frame
              model$term<-rownames(model)
-             model %>% 
-               filter(term=="pc1") %>% 
+             model %>%
+               filter(term=="pc1") %>%
                rename(rr=Median,
                       lci=`2.5%`,
-                      uci=`97.5%`) %>% 
-               select(rr,lci, uci)%>% 
+                      uci=`97.5%`) %>%
+               select(rr,lci, uci)%>%
                mutate(rr=exp(rr),
                       lci=exp(lci),
-                      uci=exp(uci)) %>% 
+                      uci=exp(uci)) %>%
                mutate(type=id)
-           }) %>% 
+           }) %>%
     mutate(city=city_var,
            date=date_var)
   results
-})
-rateratios<-rateratios %>% 
+}) %>%
   mutate(type2=ifelse(type=="pct_pos", "Positivity rate",
                       ifelse(type=="pos_pc", "Cumulative incidence",
                              "Tests per capita")))
+
 
 # for abstract
 rateratios %>% 
@@ -154,8 +166,10 @@ ggsave("Results/Figure2.pdf", width=12, height=6)
 cases_city<-all %>% 
   group_by(city, date) %>% 
   summarise(positives=sum(positives),
+            all=sum(all),
             total_pop=sum(total_pop)) %>% 
-  mutate(city_ci=positives/total_pop*100000)
+  mutate(city_ci=positives/total_pop*100000,
+         city_testing=all/total_pop*100000)
 
 cases_city %>% filter(city=="New York City", date==as_date("2020-04-01")) %>% select(-positives, -total_pop)
 cases_city %>% filter(city=="Philadelphia", date==as_date("2020-03-21")) %>% select(-positives, -total_pop)
@@ -202,6 +216,41 @@ ggplot(cases_city, aes(x=city_ci, y=rr, group=paste0(type, city))) +
         panel.grid.minor.y = element_blank())
 ggsave("Results/AppendixFigure5.pdf", width=12, height=7.5)
 
+# testing per city
+ggplot(cases_city, aes(x=city_testing, y=rr, group=paste0(type, city))) +
+  geom_hline(yintercept = 1, lty=2)+
+  #geom_line(aes(color=city)) +
+  #geom_point(aes(pch=type, fill=city), color="black", size=2)+
+  geom_ribbon(aes(ymin=lci, ymax=uci, fill=city), alpha=0.3)+
+  geom_line()+
+  scale_x_log10()+
+  scale_y_continuous(trans=log_trans(), breaks=c(0.66, 0.8, 1, 1.25, 1.5))+
+  annotation_logticks(sides="b")+
+  scale_fill_brewer(name="", type="qual", palette=2)+
+  scale_shape_manual(values=c(21, 22, 23),name="",
+                     labels=c("Positivity rate", "Cumulative incidence", "Tests per capita"))+
+  scale_linetype_manual(values=c(21, 22, 23),name="",
+                        labels=c("Positivity rate", "Cumulative incidence", "Tests per capita"))+
+  guides(shape=guide_legend(override.aes=list(size=5)),
+         color=guide_legend(override.aes=list(size=5)),
+         fill=guide_legend(override.aes=list(alpha=1)))+
+  labs(x="Testing per 100,000", 
+       y="Rate Ratio (95% CI) per 1 SD increase in Deprivation Index",
+       #title="Correlation of Zip Code Deprivation and COVID-19 Testing by City, Date and Outcome",
+       caption="Source: NYCDOH, IDPH, PDPH, and ACS")+
+  facet_wrap(~type, labeller = labeller(type=type_label)) +
+  theme_bw() +
+  theme(legend.position = "bottom",
+        legend.direction = "horizontal",
+        axis.text.y=element_text(color="black", size=14),
+        axis.text.x=element_text(color="black", size=12),
+        axis.title=element_text(color="black", size=14, face="bold"),
+        legend.text=element_text(color="black", size=14),
+        strip.text=element_text(color="black", size=16, face="bold"),
+        strip.background = element_blank(),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.y = element_blank())
+ggsave("Results/AppendixFigure5b.pdf", width=12, height=7.5)
 
 smoother<-stat_smooth(method="lm", se=F)
 #.x<-all %>% ungroup() %>% filter(city=="Philadelphia", date==max(date));.y<-data.frame(city="1PHL", date="0407", stringsAsFactors = F)
@@ -278,20 +327,17 @@ plot(pall)
 
 
 # plotting specific variables for the last available date each place
-vars<-c("mhi", "pct_nhwhite", 
-        "pct_college", "no_healthins", 
-        "pct_service", "pct_overcrowded1", "pc1")
 last_date<-all %>% filter(date==as_date("2020-05-18")) %>% 
   select(GEOID, city, pct_pos, tests_pc, pos_pc, all_of(vars)) %>% 
   gather(var, value, -GEOID, -city, -pct_pos,-tests_pc, -pos_pc) %>% 
   mutate(var=factor(var, levels=vars))
-names(vars)<-c("Log(Median Household Income)", "% Non-Hispanic White",
+var_names<-c("Log(Median Household Income)", "% Non-Hispanic White",
                "% College", "% Uninsured",
                "% Service Workers", "% Overcrowding", "Deprivation Index")
 #.x<-last_date %>% filter(var=="mhi");.y<-data.frame(var="mhi", stringsAsFactors = F)
 part1<-last_date %>% group_by(var) %>% 
   group_map(~{
-    var_name<-names(vars)[vars%in%.y$var]
+    var_name<-var_names[vars%in%.y$var]
     plot<-ggplot(.x, aes(x=value, y=tests_pc)) +
       stat_smooth(method=lm, aes(color=city), se=F)+
       geom_point(aes(fill=city, shape=city), color="black")+
@@ -315,7 +361,7 @@ part1<-last_date %>% group_by(var) %>%
   })
 part2<-last_date %>% group_by(var) %>% 
   group_map(~{
-    var_name<-names(vars)[vars%in%.y$var]
+    var_name<-var_names[vars%in%.y$var]
     plot<-ggplot(.x, aes(x=value, y=pct_pos)) +
       stat_smooth(method=lm, aes(color=city), se=F)+
       geom_point(aes(fill=city, shape=city), color="black")+
@@ -339,7 +385,7 @@ part2<-last_date %>% group_by(var) %>%
   })
 part3<-last_date %>% group_by(var) %>% 
   group_map(~{
-    var_name<-names(vars)[vars%in%.y$var]
+    var_name<-var_names[vars%in%.y$var]
     plot<-ggplot(.x, aes(x=value, y=pos_pc)) +
       stat_smooth(method=lm, aes(color=city), se=F)+
       geom_point(aes(fill=city, shape=city), color="black")+
@@ -382,73 +428,71 @@ legend<-get_legend(legend)
 pall<-arrangeGrob(grobs=list(pall, legend), ncol=1,heights=c(10, 1))
 ggsave("Results/Figure1.pdf", pall, width=20, height=12.5)
 plot(pall)
-# table 1
-vars<-c("mhi", "pct_nhwhite", 
-        "pct_college", "no_healthins", 
-        "pct_service", "pct_overcrowded1", "pc1")
-last_date<-all %>% filter(date==as_date("2020-05-18")) %>% 
-  select(GEOID, city, positives, all, total_pop, all_of(vars)) %>% 
-  gather(var, value, -GEOID, -city, -positives,-all, -total_pop)
-#.x<-last_date %>% filter(city=="Philadelphia", var=="pct_college")
-#.y<-data.frame(city="Philadelphia",stringsAsFactors=F)
-table1<-last_date %>% 
+
+# table 1 (takes long)
+last_date<-all %>% filter(date==("2020-05-18")) %>%
+  select(GEOID, city, positives, all, total_pop, all_of(vars)) %>%
+  gather(var, value, -GEOID, -city, -positives,-all, -total_pop) %>%
   mutate(var=factor(var, levels=c(vars))) %>%
-  mutate(value=ifelse(var=="mhi", log(value), value)) %>% 
-  group_by(city, var) %>% 
-  group_modify(~{
-    .x$value<-as.numeric(scale(.x$value, scale=T, center=T))
-    id<-which(neighbors_id$city==.y$city)
-    nb_mat<-neighbors[[id]]
-    nb_matrix<-nb2mat(nb_mat,style = "B")
-    CAR_pos_pc <- S.CARbym(formula=positives~value+offset(log(total_pop)), 
-                           data=.x, 
-                           family="poisson", W=nb_matrix,
-                           burnin=20000, n.sample=100000, thin=10, 
-                           verbose=F)
-    CAR_tests_pc <- S.CARbym(formula=all~value+offset(log(total_pop)), 
-                             data=.x, 
-                             family="poisson", W=nb_matrix,
-                             burnin=20000, n.sample=100000, thin=10, 
+  mutate(value=ifelse(var=="mhi", log(value), value)) %>%
+  group_by(city, var) %>%
+  group_split(keep=T)
+plan(multiprocess)
+table1<-future_map_dfr(last_date, function(temp){
+  city_var<-unique(temp$city)
+  var<-unique(temp$var)
+  id<-which(neighbors_id$city==city_var)
+  nb_mat<-neighbors[[id]]
+  nb_matrix<-nb2mat(nb_mat,style = "B")
+  temp$value<-as.numeric(scale(temp$value, center=T, scale=T))
+  CAR_pos_pc <- S.CARleroux(formula=positives~value+offset(log(total_pop)),
+                            data=temp,
+                            family="poisson", W=nb_matrix,rho=NULL,
+                            burnin=20000, n.sample=100000, thin=10,
+                            verbose=F)
+  CAR_tests_pc <- S.CARleroux(formula=all~value+offset(log(total_pop)),
+                              data=temp,
+                              family="poisson", W=nb_matrix,rho=NULL,
+                              burnin=20000, n.sample=100000, thin=10,
+                              verbose=F)
+  # for pct pos, exclude those with 0 tests (infinite % pct pos)
+  # just a few (42 in total across the 12823 observations)
+  if (any(temp$all==0)){
+    exclude<-which(temp$all==0)
+    nb_matrix<-nb_matrix[-exclude, -exclude]
+    temp<-temp %>% filter(all>0)
+  }
+  CAR_pct_pos <- S.CARleroux(formula=positives~value+offset(log(all)),
+                             data=temp,
+                             family="poisson", W=nb_matrix,rho=NULL,
+                             burnin=20000, n.sample=100000, thin=10,
                              verbose=F)
-    # for pct pos, exclude those with 0 tests (infinite % pct pos)
-    # just a few (42 in total across the 12823 observations)
-    if (any(.x$all==0)){
-      exclude<-which(.x$all==0)
-      nb_matrix<-nb_matrix[-exclude, -exclude]
-      .x<-.x %>% filter(all>0)  
-    }
-    CAR_pct_pos <- S.CARbym(formula=positives~value, 
-                            #trials = .x$all,
-                            data=.x, 
-                            family="poisson", W=nb_matrix,
-                            burnin=20000, n.sample=100000, thin=10, 
-                            MALA=F,verbose=T)
-    results<-map2_dfr(list(CAR_tests_pc, CAR_pct_pos, CAR_pos_pc), 
-                      c("tests_pc", "pct_pos", "pos_pc"),
-                      function(model, id){
-                        model<-model$summary.results%>% as.data.frame
-                        model$term<-rownames(model)
-                        model %>% 
-                          filter(term=="value") %>% 
-                          rename(rr=Median,
-                                 lci=`2.5%`,
-                                 uci=`97.5%`) %>% 
-                          select(rr,lci, uci)%>% 
-                          mutate(rr=exp(rr),
-                                 lci=exp(lci),
-                                 uci=exp(uci)) %>% 
-                          mutate(type=id)
-                      }) %>% 
-      mutate(coef=paste0(format(rr, digits=2, nsmall=2),
-                         "(",
-                         format(lci, digits=2, nsmall=2),
-                         ";",
-                         format(uci, digits=2, nsmall=2),
-                         ")")) %>%
-      select(type, coef) %>% 
-      spread(type, coef)
-    results
-  }) %>% 
+  map2_dfr(list(CAR_tests_pc, CAR_pct_pos, CAR_pos_pc),
+                    c("tests_pc", "pct_pos", "pos_pc"),
+                    function(model, id){
+                      model<-model$summary.results%>% as.data.frame
+                      model$term<-rownames(model)
+                      model %>%
+                        filter(term=="value") %>%
+                        rename(rr=Median,
+                               lci=`2.5%`,
+                               uci=`97.5%`) %>%
+                        select(rr,lci, uci)%>%
+                        mutate(rr=exp(rr),
+                               lci=exp(lci),
+                               uci=exp(uci)) %>%
+                        mutate(type=id)
+                    }) %>%
+    mutate(coef=paste0(format(rr, digits=2, nsmall=2),
+                       "(",
+                       format(lci, digits=2, nsmall=2),
+                       ";",
+                       format(uci, digits=2, nsmall=2),
+                       ")")) %>%
+    select(type, coef) %>%
+    spread(type, coef) %>%
+    mutate(city=city_var, var=var)
+}) %>%
   select(city, var, tests_pc, pct_pos, pos_pc)
 table1
 fwrite(table1, "results/table1.csv")
@@ -661,65 +705,9 @@ ggsave("Results/AppendixFigure4.pdf", plots_pos_pc[[3]], width=16, height=12/(20
 
 # MAP
 # first get data by may 18th
-vars<-c("mhi", "pct_nhwhite", 
-        "pct_college", "no_healthins", 
-        "pct_service", "pct_overcrowded1", "pc1")
-last_date<-all %>% filter(date==as_date("2020-05-18")) %>% 
+last_date<-all %>% filter(date==("2020-05-18")) %>% 
   select(GEOID, city, tests_pc,pct_pos, pos_pc, all_of(vars)) %>% 
   gather(var, value, -GEOID, -city, -tests_pc,-pct_pos, -pos_pc)
-
-#city_var="New York City"
-maps<-map(c("Chicago", "New York City", "Philadelphia"), function(city_var){
-  data<-last_date %>% 
-    filter(city==city_var, var=="pc1") %>% 
-    select(GEOID, pct_pos, tests_pc, pos_pc, value) %>% 
-    rename(pc1=value)
-  if (city_var=="Philadelphia"){
-    ## add missing zip code (navy yard)
-    data<-data %>% bind_rows(data.frame(GEOID=19112))  
-    bbox<-bbox_pa
-    shp_with_data<-data %>% left_join(shp_zip)
-  } else if (city_var=="Chicago") {
-    bbox<-bbox_il
-    shp_with_data<-data %>% left_join(shp_zip)
-  } else {
-    bbox<-bbox_ny
-    shp_with_data<-data %>% left_join(shp_zip_mod)
-  }
-  
-  m1<-ggplot()+
-    geom_sf(data=shp_with_data, size=.1,
-            aes(geometry=geometry, fill=pos_pc))+
-    scale_fill_binned(low="white", high="red", 
-                      name="Cumulative incidence")+
-    coord_sf(xlim = c(bbox["xmin"], bbox["xmax"]),
-             ylim = c(bbox["ymin"], bbox["ymax"]), expand = FALSE) +
-    guides(size=F, alpha=F)+
-    labs(title="Cumulative Incidence") +
-    theme_void()+
-    theme(plot.title = element_text(size=20, face="bold", hjust=.5),
-          panel.background = element_rect(fill = "white", color=NA),
-          legend.position="bottom")
-  m2<-ggplot()+
-    geom_sf(data=shp_with_data, size=.1,
-            aes(geometry=geometry, fill=pc1))+
-    scale_fill_binned(low="white", high="red", 
-                      name="Deprivation Index")+
-    coord_sf(xlim = c(bbox["xmin"], bbox["xmax"]),
-             ylim = c(bbox["ymin"], bbox["ymax"]), expand = FALSE) +
-    guides(size=F, alpha=F)+
-    labs(title="Deprivation") +
-    theme_void()+
-    theme(plot.title = element_text(size=20, face="bold", hjust=.5),
-          panel.background = element_rect(fill = "white", color=NA),
-          legend.position="bottom")
-  
-  full_map<-arrangeGrob(grobs=list(m1, m2), ncol=1,
-                        top=textGrob(city_var, gp=gpar(fontsize=20,face="bold",font=8)))
-  full_map
-})
-pall<-arrangeGrob(grobs=maps, ncol=3)
-#ggsave("results/Figure3.pdf", pall, width=15, height=10)
 
 shp_zip_point<-st_centroid(shp_zip)
 shp_zip_mod_point<-st_centroid(shp_zip_mod)
@@ -830,9 +818,11 @@ ylims<-c(abs(diff(bbox_il[c("ymax", "ymin")])),
          abs(diff(bbox_pa[c("ymax", "ymin")])))
 pall<-arrangeGrob(grobs=maps_v2, ncol=1, heights=ylims/sum(ylims)*20)
 ggsave("results/Figure3.pdf", pall, width=20, height=15)
+plot(pall)
+
 
 # Clusters of the 4 variables
-last_date<-all %>% filter(date==as_date("2020-05-18")) %>% 
+last_date<-all %>% filter(date==("2020-05-18")) %>% 
   select(GEOID, city, tests_pc,pct_pos, pos_pc, all_of(vars)) %>% 
   gather(var, value, -GEOID, -city, -tests_pc,-pct_pos, -pos_pc) %>% 
   filter(var=="pc1") %>% 
@@ -901,17 +891,32 @@ cluster_maps<-map(c("pos_pc", "pct_pos", "tests_pc", "pc1"), function(outcome_va
             legend.text=element_text(color="black", size=20),
             legend.title=element_text(face="bold",color="black", size=20))
   })
+})
+# by outcome
+cluster_maps_outcome<-map(cluster_maps, function(maps_temp){
   legend<-get_legend(maps_temp[[1]])
   maps_temp<-map(maps_temp, function(xx) xx+guides(fill=F))
   pall<-arrangeGrob(grobs=maps_temp, ncol=3)
   pall<-arrangeGrob(grobs=list(pall, legend), nrow=2, heights=c(10, 1))
   pall
 })
-ggsave("results/Figure4.pdf", cluster_maps[[1]], width=20, height=7.5)
-ggsave("results/AppendixFigure6.pdf", cluster_maps[[2]], width=20, height=7.5)
-ggsave("results/AppendixFigure7.pdf", cluster_maps[[3]], width=20, height=7.5)
-ggsave("results/AppendixFigure8.pdf", cluster_maps[[4]], width=20, height=7.5)
+ggsave("results/Figure4.pdf", cluster_maps_outcome[[1]], width=20, height=7.5)
+plot(cluster_maps_outcome[[1]])
+ggsave("results/AppendixFigure6.pdf", cluster_maps_outcome[[2]], width=20, height=7.5)
+ggsave("results/AppendixFigure7.pdf", cluster_maps_outcome[[3]], width=20, height=7.5)
+ggsave("results/AppendixFigure8.pdf", cluster_maps_outcome[[4]], width=20, height=7.5)
 
+#Reorder map to show all outcomes in the same city
+cluster_maps_city<-map(1:3, function(city){
+  city_label<-cluster_maps[[city]][[1]]$labels$title
+  temp<-map2(cluster_maps, c("Incidence", "Positivity", "Testing", "Deprivation"), function(xx, title){
+    xx[[city]]+labs(title=title)
+  })
+  arrangeGrob(grobs=temp, ncol=4,
+              textGrob(city_label, gp=gpar(fontsize=20,face="bold",font=8)))
+})
+pall<-arrangeGrob(grobs=cluster_maps_city, nrow=3)
+ggsave("results/AppendixFigure68AllMaps.pdf", pall, width=20*4/3, height=7.5*3)
 
 # save loadings
 apptable1<-loadings %>% spread(city, loading) %>% 
@@ -922,4 +927,5 @@ apptable1<-loadings %>% spread(city, loading) %>%
 fwrite(apptable1, file="Results/AppendixTable1.csv")
 
 
-
+# save computationally intensive results
+save(rateratios, table1, file="Results/RateRatiosperDate.rdata")
