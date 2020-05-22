@@ -62,6 +62,7 @@ neighbors<-all %>%
     }
     nbmat
   })
+
 bycity_and_date<-all %>% 
   ungroup() %>% 
   group_by(city, date) %>% 
@@ -82,12 +83,12 @@ rateratios<-future_map_dfr(bycity_and_date, function(temp){
   nb_matrix<-nb2mat(nb_mat,style = "B")
   CAR_pos_pc <- S.CARleroux(formula=positives~pc1+offset(log(total_pop)),
                          data=temp,
-                         family="poisson", W=nb_matrix,rho=1,
+                         family="poisson", W=nb_matrix,
                          burnin=20000, n.sample=100000, thin=10,
                          verbose=F)
   CAR_tests_pc <- S.CARleroux(formula=all~pc1+offset(log(total_pop)),
                            data=temp,
-                           family="poisson", W=nb_matrix,rho=1,
+                           family="poisson", W=nb_matrix,
                            burnin=20000, n.sample=100000, thin=10,
                            verbose=F)
   # for pct pos, exclude those with 0 tests (infinite)
@@ -99,7 +100,7 @@ rateratios<-future_map_dfr(bycity_and_date, function(temp){
   }
   CAR_pct_pos <- S.CARleroux(formula=positives~pc1+offset(log(all)),
                           data=temp,
-                          family="poisson", W=nb_matrix,rho=1,
+                          family="poisson", W=nb_matrix,
                           burnin=20000, n.sample=100000, thin=10,
                           verbose=F)
   results<-map2_dfr(list(CAR_tests_pc, CAR_pct_pos, CAR_pos_pc),
@@ -447,12 +448,12 @@ table1<-future_map_dfr(last_date, function(temp){
   temp$value<-as.numeric(scale(temp$value, center=T, scale=T))
   CAR_pos_pc <- S.CARleroux(formula=positives~value+offset(log(total_pop)),
                             data=temp,
-                            family="poisson", W=nb_matrix,rho=NULL,
+                            family="poisson", W=nb_matrix,
                             burnin=20000, n.sample=100000, thin=10,
                             verbose=F)
   CAR_tests_pc <- S.CARleroux(formula=all~value+offset(log(total_pop)),
                               data=temp,
-                              family="poisson", W=nb_matrix,rho=NULL,
+                              family="poisson", W=nb_matrix,
                               burnin=20000, n.sample=100000, thin=10,
                               verbose=F)
   # for pct pos, exclude those with 0 tests (infinite % pct pos)
@@ -464,7 +465,7 @@ table1<-future_map_dfr(last_date, function(temp){
   }
   CAR_pct_pos <- S.CARleroux(formula=positives~value+offset(log(all)),
                              data=temp,
-                             family="poisson", W=nb_matrix,rho=NULL,
+                             family="poisson", W=nb_matrix,
                              burnin=20000, n.sample=100000, thin=10,
                              verbose=F)
   map2_dfr(list(CAR_tests_pc, CAR_pct_pos, CAR_pos_pc),

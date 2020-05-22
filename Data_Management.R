@@ -77,6 +77,8 @@ vars<-load_variables(year=2018, "acs5")
 # get data at the zipcode level and process
 zcta_data_raw<-get_acs(geography = "zcta",
                       variables=c(
+                        # age
+                        paste0("B01001_", sprintf("%03d", 1:49)),
                         # median household income
                         "B19013_001",
                         # education
@@ -122,6 +124,15 @@ zcta_data_raw<-get_acs(geography = "zcta",
 zcta_data<-zcta_data_raw %>% 
   rowwise() %>% 
   mutate(mhi=B19013_001,
+         pct_age2044=sum(c(B01001_008,B01001_009,B01001_010,B01001_011,B01001_012,
+                           B01001_013,B01001_014,B01001_032,B01001_033,B01001_034,
+                           B01001_035,B01001_036,B01001_037,B01001_038))/B01001_001,
+         pct_age4564=sum(c(B01001_015,B01001_016,B01001_017,B01001_018,B01001_019,
+                           B01001_039,B01001_040,B01001_041,B01001_042,B01001_043))/B01001_001,
+         pct_age6574=sum(c(B01001_020,B01001_021,B01001_022,B01001_044,B01001_045,
+                           B01001_046))/B01001_001,
+         pct_age7584=sum(c(B01001_023,B01001_024,B01001_047,B01001_048))/B01001_001,
+         pct_age85plus=sum(c(B01001_025,B01001_049))/B01001_001,
          pct_hisp=B03002_012/B03002_001,
          pct_black=B03002_004/B03002_001,
          pct_nhwhite=B03002_003/B03002_001,
@@ -143,6 +154,7 @@ zcta_data<-zcta_data_raw %>%
          pct_college=sum(c(B15003_022,B15003_023,B15003_024,B15003_025))/B15003_001,
          GEOID=as.numeric(GEOID)) %>% 
   select(GEOID, mhi, pct_hisp, pct_black, pct_nhwhite,
+         pct_age2044, pct_age4564, pct_age6574, pct_age7584, pct_age85plus,
          total_pop, total_hisp, total_black,
          limited_engl, no_healthins, pct_college,
          pct_healthcareworkers,pct_service,pct_transit,
@@ -175,6 +187,15 @@ modified_zcta_data<-
   rowwise() %>% 
   # do some data management to create indicators
   mutate(mhi=B19013_001,
+         pct_age2044=sum(c(B01001_008,B01001_009,B01001_010,B01001_011,B01001_012,
+                           B01001_013,B01001_014,B01001_032,B01001_033,B01001_034,
+                           B01001_035,B01001_036,B01001_037,B01001_038))/B01001_001,
+         pct_age4564=sum(c(B01001_015,B01001_016,B01001_017,B01001_018,B01001_019,
+                           B01001_039,B01001_040,B01001_041,B01001_042,B01001_043))/B01001_001,
+         pct_age6574=sum(c(B01001_020,B01001_021,B01001_022,B01001_044,B01001_045,
+                           B01001_046))/B01001_001,
+         pct_age7584=sum(c(B01001_023,B01001_024,B01001_047,B01001_048))/B01001_001,
+         pct_age85plus=sum(c(B01001_025,B01001_049))/B01001_001,
          pct_hisp=B03002_012/B03002_001,
          pct_black=B03002_004/B03002_001,
          pct_nhwhite=B03002_003/B03002_001,
@@ -196,6 +217,7 @@ modified_zcta_data<-
          pct_college=sum(c(B15003_022,B15003_023,B15003_024,B15003_025))/B15003_001,
          GEOID=as.numeric(GEOID)) %>% 
   select(GEOID, mhi, pct_hisp, pct_black, pct_nhwhite,
+         pct_age2044, pct_age4564, pct_age6574, pct_age7584, pct_age85plus,
          total_pop, total_hisp, total_black,
          limited_engl, no_healthins, pct_college,
          pct_healthcareworkers,pct_service,pct_transit,
@@ -262,12 +284,14 @@ nyc2<-map2_dfr(history, dates3, function(file, date){
   filter(!is.na(GEOID), GEOID!=99999) %>% 
   # data now has positives and % positive, so calculate total tests
   mutate(all=round(COVID_CASE_COUNT/(PERCENT_POSITIVE/100))) %>% 
-  rename(positives=COVID_CASE_COUNT) %>% 
-  select(GEOID, positives, all, date) 
+  rename(positives=COVID_CASE_COUNT,
+         total_pop=POP_DENOMINATOR) %>% 
+  select(GEOID, positives, all, date, total_pop) 
+nyc_pop<-nyc2 %>% filter(date==max(date)) %>% select(GEOID, total_pop)
 
 # April 26th was somehow erroneous  according to github notes
 # (big jump in cases, and was fixed on 27)
-nyc<-bind_rows(nyc1, nyc2)
+nyc<-bind_rows(nyc1, nyc2 %>% select(-total_pop))
 nyc<-nyc %>% filter(date!=as_date("2020-04-26"))
 # there also seems to be an error on 4-10, where zip code 11697 has two observations, one of them duplicated from the previous day
 # removing it manually
@@ -297,6 +321,12 @@ phl1<-fread("Data/PHL/Tableau_file_04252020.csv") %>%
   spread(test, n)
 table(mdy(phl1$date))
 # Number of zipcodes is stable from March 20th to April 24th
+# keeping a total_pop as provided by PDPH
+phl_pop<-fread("Data/PHL/Tableau_file_04252020.csv") %>% 
+  rename(GEOID=ZIP1, total_pop=`Zip Pop`) %>% 
+  filter(!duplicated(GEOID)) %>% 
+  select(GEOID, total_pop)
+
 
 # fill in the gaps
 template<-expand.grid(GEOID=unique(phl1$GEOID),
@@ -352,10 +382,23 @@ phl<-full_join(phl, template) %>%
 #               destfile ="Data/cb_2018_17_place_500k.zip" )
 # unzip("Data/cb_2018_17_place_500k.zip", exdir = "Data/Chicago/place_il/")
 place_il<-readOGR('Data/Chicago/place_il/', 'cb_2018_17_place_500k') %>% st_as_sf
-chicago_zctas<-place_il %>% filter(grepl("^Chicago$", NAME, ignore.case=T)) %>% 
+chicago_zctas2<-place_il %>% filter(grepl("^Chicago$", NAME, ignore.case=T)) %>% 
   st_intersection(shp_zip %>% st_as_sf) %>% 
   mutate(ZCTA5CE10=as.numeric(as.character(ZCTA5CE10))) %>% 
   pull(ZCTA5CE10)
+# get chicago pop
+chi_pop<-fread("Data/Chicago/COVID-19_Cases__Tests__and_Deaths_by_ZIP_Code_052220.csv") %>% 
+  mutate(GEOID=as.numeric(`ZIP Code`),
+         date=mdy(`Week End`)) %>% 
+  filter(date==max(date)) %>% 
+  rename(total_pop=Population) %>% 
+  filter(!is.na(GEOID)) %>% 
+  select(GEOID, total_pop)
+# this also represents chicago ZCTAs, the one for which the city reports data
+# instead of the intersecting ones
+chicago_zctas<-chi_pop %>% pull(GEOID) %>% unique
+
+
 # Chicago data, downloaded from the Chicago Reporter
 files<-list.files("Data/Chicago/Chicago_Reporter/", pattern="json")
 #file<-files[[1]]
@@ -393,15 +436,22 @@ chicago[chicago$date>="2020-05-13"&
           chicago$date<="2020-05-15"&
           chicago$GEOID==60603,c("positives", "all")]<-c(6,6,6,51,51,51)
 
+
 all<-bind_rows(phl %>% 
             mutate(city="Philadelphia") %>% 
-            left_join(zcta_data),
+            left_join(zcta_data) %>% 
+              rename(total_pop_census=total_pop) %>% 
+              left_join(phl_pop),
           nyc %>% 
             mutate(city="New York City") %>% 
-            left_join(modified_zcta_data),
+            left_join(modified_zcta_data)%>% 
+            rename(total_pop_census=total_pop) %>% 
+            left_join(nyc_pop),
           chicago %>% 
             mutate(city="Chicago") %>% 
-            left_join(zcta_data)) %>% 
+            left_join(zcta_data)%>% 
+            rename(total_pop_census=total_pop) %>% 
+            left_join(chi_pop)) %>% 
   # remove those without (or very little) population/ACS data and remove industrial zipcodes (e.g.: philly airport)
   filter(!is.na(mhi)) %>% 
   filter(total_pop>100) %>% 
@@ -433,9 +483,12 @@ loadings<-all %>% group_by(city) %>%
       mutate_at(-1,format, digits=2, nsmall=2)
   })
 
-all<-all %>% full_join(pca)
+all<-all %>% full_join(pca) %>% ungroup()
+head(all)
+summary(all)
 
-save(all, loadings, 
+
+save(all, loadings, zcta_data, modified_zcta_data,
      shp_zip, shp_zip_mod,
      bbox_il, bbox_pa, bbox_ny,
      file="Data/clean_data.rdata")
