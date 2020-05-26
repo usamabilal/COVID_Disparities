@@ -365,7 +365,8 @@ phl<-map_dfr(history, function(file){
     filter(!is.na(GEOID))
   t
 })
-
+# take zip code list from May 18th 
+phl_zcta<-phl %>% filter(date=="2020-05-18") %>% pull(GEOID) %>% unique
 phl<-bind_rows(phl, phl1)
 # make sure all zip codes are included every date
 # if not, set their number of tests to 0
@@ -373,7 +374,8 @@ template<-expand.grid(GEOID=unique(phl$GEOID),
                       date=unique(phl$date), stringsAsFactors = F)
 phl<-full_join(phl, template) %>% 
   mutate(positives=replace_na(positives, 0),
-         all=replace_na(all, 0))
+         all=replace_na(all, 0)) %>% 
+  filter(GEOID%in%phl_zcta)
 
 
 # get chicago at two time points
@@ -454,7 +456,7 @@ all<-bind_rows(phl %>%
             left_join(chi_pop)) %>% 
   # remove those without (or very little) population/ACS data and remove industrial zipcodes (e.g.: philly airport)
   filter(!is.na(mhi)) %>% 
-  filter(total_pop>100) %>% 
+  filter(total_pop_census>100) %>% 
   # compute the 3 key outcomes
   mutate(pct_pos=positives/all,
          pos_pc=positives/total_pop*1000,
