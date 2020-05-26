@@ -124,7 +124,7 @@ rateratios<-future_map_dfr(bycity_and_date, function(temp){
   results
 }) %>%
   mutate(type2=ifelse(type=="pct_pos", "Positivity rate",
-                      ifelse(type=="pos_pc", "Cumulative incidence",
+                      ifelse(type=="pos_pc", "Incidence",
                              "Tests per capita")))
 
 
@@ -146,7 +146,7 @@ ggplot(rateratios, aes(x=date, y=rr, group=type)) +
   scale_fill_discrete(name="")+
   guides(shape=guide_legend(override.aes=list(size=5)),
          fill=guide_legend(override.aes=list(alpha=1)))+
-  labs(x="Date", y="Rate Ratio (95% CI) per 1 SD increase in Deprivation Index",
+  labs(x="Date", y="Rate Ratio (95% CI) per 1 SD increase in Summary Index",
        #title="Correlation of Zip Code Deprivation and COVID-19 Testing by City, Date and Outcome",
        caption="Source: NYCDOH, IDPH, PDPH, and ACS")+
   facet_wrap(~city, labeller = labeller(city=city_label)) +
@@ -193,14 +193,14 @@ ggplot(cases_city, aes(x=city_ci, y=rr, group=paste0(type, city))) +
   annotation_logticks(sides="b")+
   scale_fill_brewer(name="", type="qual", palette=2)+
   scale_shape_manual(values=c(21, 22, 23),name="",
-                     labels=c("Positivity rate", "Cumulative incidence", "Tests per capita"))+
+                     labels=c("Positivity rate", "Incidence", "Tests per capita"))+
   scale_linetype_manual(values=c(21, 22, 23),name="",
-                        labels=c("Positivity rate", "Cumulative incidence", "Tests per capita"))+
+                        labels=c("Positivity rate", "Incidence", "Tests per capita"))+
   guides(shape=guide_legend(override.aes=list(size=5)),
          color=guide_legend(override.aes=list(size=5)),
          fill=guide_legend(override.aes=list(alpha=1)))+
-  labs(x="Cumulative incidence per 100,000", 
-       y="Rate Ratio (95% CI) per 1 SD increase in Deprivation Index",
+  labs(x="City-level cumulative incidence per 100,000", 
+       y="Rate Ratio (95% CI) per 1 SD increase in Summary Index",
        #title="Correlation of Zip Code Deprivation and COVID-19 Testing by City, Date and Outcome",
        caption="Source: NYCDOH, IDPH, PDPH, and ACS")+
   facet_wrap(~type, labeller = labeller(type=type_label)) +
@@ -229,14 +229,14 @@ ggplot(cases_city, aes(x=city_testing, y=rr, group=paste0(type, city))) +
   annotation_logticks(sides="b")+
   scale_fill_brewer(name="", type="qual", palette=2)+
   scale_shape_manual(values=c(21, 22, 23),name="",
-                     labels=c("Positivity rate", "Cumulative incidence", "Tests per capita"))+
+                     labels=c("Positivity rate", "Incidence", "Tests per capita"))+
   scale_linetype_manual(values=c(21, 22, 23),name="",
-                        labels=c("Positivity rate", "Cumulative incidence", "Tests per capita"))+
+                        labels=c("Positivity rate", "Incidence", "Tests per capita"))+
   guides(shape=guide_legend(override.aes=list(size=5)),
          color=guide_legend(override.aes=list(size=5)),
          fill=guide_legend(override.aes=list(alpha=1)))+
-  labs(x="Testing per 100,000", 
-       y="Rate Ratio (95% CI) per 1 SD increase in Deprivation Index",
+  labs(x="City-level testing per 100,000", 
+       y="Rate Ratio (95% CI) per 1 SD increase in Summary Index",
        #title="Correlation of Zip Code Deprivation and COVID-19 Testing by City, Date and Outcome",
        caption="Source: NYCDOH, IDPH, PDPH, and ACS")+
   facet_wrap(~type, labeller = labeller(type=type_label)) +
@@ -274,7 +274,7 @@ plots<-all %>% group_by(city) %>%
       scale_x_continuous(limits=c(NA, NA))+
       annotation_logticks(sides="l")+
       theme_bw() +
-      labs(x="Deprivation Index (SD)",
+      labs(x="Summary Index (SD)",
            y="Tests per 1,000",
            title="")+
       theme(axis.text=element_text(color="black"))
@@ -292,7 +292,7 @@ plots<-all %>% group_by(city) %>%
       scale_x_continuous(limits=c(NA, NA))+
       #annotation_logticks(sides="b")+
       theme_bw() +
-      labs(x="Deprivation Index (SD)",
+      labs(x="Summary Index (SD)",
            y="Positivity rate",
            title="")+
       theme(axis.text=element_text(color="black"))
@@ -311,8 +311,8 @@ plots<-all %>% group_by(city) %>%
       scale_x_continuous(limits=c(NA, NA))+
       annotation_logticks(sides="l")+
       theme_bw() +
-      labs(x="Deprivation Index (SD)",
-           y="Cumulative incidence per 1,000",
+      labs(x="Summary Index (SD)",
+           y="Incidence per 1,000",
            title="")+
       theme(axis.text=element_text(color="black"))
     title1<-unique(.x$date)
@@ -334,7 +334,7 @@ last_date<-all %>% filter(date==as_date("2020-05-18")) %>%
   mutate(var=factor(var, levels=vars))
 var_names<-c("Log(Median Household Income)", "% Non-Hispanic White",
                "% College", "% Uninsured",
-               "% Service Workers", "% Overcrowding", "Deprivation Index")
+               "% Service Workers", "% Overcrowding", "Summary Index")
 #.x<-last_date %>% filter(var=="mhi");.y<-data.frame(var="mhi", stringsAsFactors = F)
 part1<-last_date %>% group_by(var) %>% 
   group_map(~{
@@ -405,7 +405,7 @@ part3<-last_date %>% group_by(var) %>%
       plot<-plot+
         scale_x_log10(breaks=c(10000, 20000, 30000,
                                50000, 70000, 100000, 200000))+
-        labs(y="Cumulative Incidence")
+        labs(y="Incidence")
     }
     plot
   })
@@ -620,9 +620,9 @@ plots_pos_pc<-all %>% group_by(city) %>%
   group_map(~{
     title1<-unique(.x$date)
     title2<-.y$city
-    title<-paste0("COVID-19 Cumulative Incidence in Zip Codes of ", title2, " by ", title1)
+    title<-paste0("COVID-19 Incidence in Zip Codes of ", title2, " by ", title1)
     smoother<-stat_smooth(method="lm")
-    ylab<-"Cumulative incidence per 1,000 people"
+    ylab<-"Incidence per 1,000 people"
     p1<-ggplot(.x, aes(x=mhi, y=pos_pc)) +
       smoother+
       geom_point()+
@@ -769,12 +769,12 @@ maps_v2<-map(c("Chicago", "New York City", "Philadelphia"), function(city_var){
     geom_sf(data=shp_with_data2, pch=21, color="black", fill=NA,
             aes(geometry=geometry, size=pos_pc_q5))+
     scale_size_manual(values=2^(0:4))+
-    scale_fill_binned(name="Deprivation", type="gradient",
+    scale_fill_binned(name="Disadvantage", type="gradient",
                       low="white", high="red")+
     coord_sf(xlim = c(bbox["xmin"], bbox["xmax"]),
              ylim = c(bbox["ymin"], bbox["ymax"]), expand = FALSE) +
     guides(alpha=F, size=F, fill=F)+
-    labs(title=ifelse(city_var=="Chicago", "Cumulative Incidence", "")) +
+    labs(title=ifelse(city_var=="Chicago", "Incidence", "")) +
     theme_void()+
     theme(plot.title = element_text(size=20, face="bold", hjust=.5),
           panel.background = element_rect(fill = "white", color=NA),
@@ -785,7 +785,7 @@ maps_v2<-map(c("Chicago", "New York City", "Philadelphia"), function(city_var){
     geom_sf(data=shp_with_data2, pch=21, color="black", fill=NA,
             aes(geometry=geometry, size=pct_pos_q5))+
     scale_size_manual(values=2^(0:4))+
-    scale_fill_binned(name="Deprivation", type="gradient",
+    scale_fill_binned(name="Disadvantage", type="gradient",
                       low="white", high="red")+
     coord_sf(xlim = c(bbox["xmin"], bbox["xmax"]),
              ylim = c(bbox["ymin"], bbox["ymax"]), expand = FALSE) +
@@ -801,7 +801,7 @@ maps_v2<-map(c("Chicago", "New York City", "Philadelphia"), function(city_var){
     geom_sf(data=shp_with_data2, pch=21, color="black", fill=NA,
             aes(geometry=geometry, size=tests_pc_q5))+
     scale_size_manual(values=2^(0:4))+
-    scale_fill_binned(name="Deprivation", type="gradient",
+    scale_fill_binned(name="Disadvantage", type="gradient",
                       low="white", high="red")+
     coord_sf(xlim = c(bbox["xmin"], bbox["xmax"]),
              ylim = c(bbox["ymin"], bbox["ymax"]), expand = FALSE) +
@@ -859,7 +859,7 @@ cluster_maps<-map(c("pos_pc", "pct_pos", "tests_pc", "pc1"), function(outcome_va
       outcome_var=="pos_pc" ~ c("Low incidence", "High incidence"),
       outcome_var=="pct_pos" ~ c("Low positivity", "High positivity"),
       outcome_var=="tests_pc" ~ c("Low testing", "High testing"),
-      outcome_var=="pc1" ~ c("Low deprivation", "High deprivation")
+      outcome_var=="pc1" ~ c("Low disadvantage", "High disadvantage")
     )
     # get neighborhood matrix (see above)
     map_nbq<-neighbors[[which(neighbors_id$city==city_var)]]
@@ -910,7 +910,7 @@ ggsave("results/AppendixFigure8.pdf", cluster_maps_outcome[[4]], width=20, heigh
 #Reorder map to show all outcomes in the same city
 cluster_maps_city<-map(1:3, function(city){
   city_label<-cluster_maps[[city]][[1]]$labels$title
-  temp<-map2(cluster_maps, c("Incidence", "Positivity", "Testing", "Deprivation"), function(xx, title){
+  temp<-map2(cluster_maps, c("Incidence", "Positivity", "Testing", "Disadvantage"), function(xx, title){
     xx[[city]]+labs(title=title)
   })
   arrangeGrob(grobs=temp, ncol=4,
