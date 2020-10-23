@@ -2,17 +2,14 @@ rm(list=ls())
 library(tidyverse)
 library(data.table)
 library(tidycensus)
-library(jsonlite)
 library(readxl)
-library(broom)
-library(gridExtra)
-library(foreign)
-library(lubridate)
-library(scales)
-library(grid)
 library(rgdal)
-library(rgeos)
+library(lubridate)
 library(sf)
+library(foreign)
+library(zoo)
+library(spdep)
+library(rmapshaper)
 options(scipen=999)
 select<-dplyr::select
 
@@ -34,10 +31,22 @@ select<-dplyr::select
 # download.file("https://www2.census.gov/geo/tiger/GENZ2018/shp/cb_2018_36_place_500k.zip",
 #               destfile ="Data/cb_2018_36_place_500k.zip" )
 # unzip("Data/cb_2018_36_place_500k.zip", exdir = "Data/NYC/place_ny/")
+# CBG
+# download.file("https://www2.census.gov/geo/tiger/GENZ2018/shp/cb_2018_36_bg_500k.zip",
+#               destfile ="Data/cb_2018_36_bg_500k.zip" )
+# unzip("Data/cb_2018_36_bg_500k.zip", exdir = "Data/NYC/bg_ny/")
+# download.file("https://www2.census.gov/geo/tiger/GENZ2018/shp/cb_2018_42_bg_500k.zip",
+#               destfile ="Data/cb_2018_42_bg_500k.zip" )
+# unzip("Data/cb_2018_42_bg_500k.zip", exdir = "Data/PHL/bg_pa/")
+# download.file("https://www2.census.gov/geo/tiger/GENZ2018/shp/cb_2018_17_bg_500k.zip",
+#               destfile ="Data/cb_2018_17_bg_500k.zip" )
+# unzip("Data/cb_2018_17_bg_500k.zip", exdir = "Data/Chicago/bg_il/")
+
+
 
 # load generic shapefiles
 # states
-shp_states = readOGR('Data/stateshp/', 'cb_2018_us_state_500k')
+shp_states = readOGR('Data/stateshp/cb_2018_us_state_500k.shp')
 shp_states$STATEFP<-as.numeric(as.character(shp_states$STATEFP))
 shp_states<-shp_states[grepl("Delaware|New Jersey|Pennsylvania|New York|Connecticut|Indiana|Illinois", shp_states$NAME),]
 shp_states<-ms_simplify(shp_states)
@@ -63,6 +72,9 @@ shp_zip_mod<-readOGR('Data/NYC/Geography-resources/', 'MODZCTA_2010')
 shp_zip_mod$GEOID<-as.numeric(as.character(shp_zip_mod$MODZCTA))
 shp_zip_mod<-shp_zip_mod %>% st_as_sf %>% 
   st_transform(crs=st_crs(shp_place_ny))
+
+
+
 
 # load area and transform to miles
 area<-read.dbf("Data/zipcodeshp/cb_2018_us_zcta510_500k.dbf") %>% 
@@ -227,37 +239,15 @@ modified_zcta_data<-
   mutate(density=total_pop/area)
 
 
-# Get NYC data over time: this is just a saved html of the github page for the zcta file history
-# 3 files: 2 for the old tests by zcta, 1 for the new data by zcta
-# we get the commit ids
-file<-read_file("Data/NYC/History for tests-by-zcta.csv - nychealth_coronavirus-data_part1.html")
-file2<-read_file("Data/NYC/History for tests-by-zcta.csv - nychealth_coronavirus-data_part2.html")
-file3<-read_file("Data/NYC/History for data-by-modzcta.csv - nychealth_coronavirus-data.html")
-list<-gregexpr("repo:250296192:commit:", file)[[1]]
-commits<-map_chr(list, function(init){
-  substr(file, init+22, init+22+39)  
-})
-list2<-gregexpr("repo:250296192:commit:", file2)[[1]]
-commits2<-map_chr(list2, function(init){
-  substr(file2, init+22, init+22+39)  
-})
-commits<-c(commits, commits2)
-
-list<-gregexpr("Commits on ", file)[[1]]
-dates<-map(list, function(init){
-  mdy(paste0(gsub("\\,", "", substr(file, init+11, init+11+6)  ), ", ", 2020))
-}) %>% do.call(what = c)
-list2<-gregexpr("Commits on ", file2)[[1]]
-dates2<-map(list2, function(init){
-  mdy(paste0(gsub("\\,", "", substr(file2, init+11, init+11+6)  ), ", ", 2020))
-}) %>% do.call(what = c)
-dates<-c(dates, dates2)
-
-# and then import them
-history<-paste0("https://raw.githubusercontent.com/nychealth/coronavirus-data/",commits,"/tests-by-zcta.csv")
-# 7th item(may 11) has some issues for downloading
-history<-history[-7]
-nyc1<-map2_dfr(history, dates, function(file, date){
+# Get NYC data over time
+# tests by zcta (tests and positives)
+# list of commits first day of the month
+commits1<-c("9e26adc2c475d3378d7579e48e936f8a807b254b",
+            "097cbd70aa00eb635b17b177bc4546b2fce21895")
+dates1<-c("05/01/2020",
+          "04/01/2020")
+history<-paste0("https://raw.githubusercontent.com/nychealth/coronavirus-data/",commits1,"/tests-by-zcta.csv")
+nyc1<-map2_dfr(history, dates1, function(file, date){
   t<-fread(file)
   t$date<-date
   t
@@ -266,17 +256,21 @@ nyc1<-map2_dfr(history, dates, function(file, date){
   rename(positives=Positive,
          all=Total) %>% 
   select(GEOID, positives, all, date) 
-# also get the new data
-list3<-gregexpr("repo:250296192:commit:", file3)[[1]]
-commits3<-map_chr(list3, function(init){
-  substr(file3, init+22, init+22+39)  
-})
-list3<-gregexpr("Commits on ", file3)[[1]]
-dates3<-map(list3, function(init){
-  mdy(paste0(gsub("\\,", "", substr(file3, init+11, init+11+6)  ), ", ", 2020))
-}) %>% do.call(what = c)
-history<-paste0("https://raw.githubusercontent.com/nychealth/coronavirus-data/",commits3,"/data-by-modzcta.csv")
-nyc2<-map2_dfr(history, dates3, function(file, date){
+
+# data by mod-zcta (includes deaths, etc.)
+# list of commits first day of the month
+commits2<-c("697dcb6c9bd3531b3838a733bfb26aeb97538224", 
+            "c1469896916cb2c53e0e1faf3fa571d700602187",
+            "a7315f625e7ef4eb15ed326d8ef66a703fccb613",
+            "41f823d90887251735ad4e6f4814548fc9526606",
+            "62444c1cbfda69c28ed468d14be3f332ea35eea7")
+dates2<-c("10/01/2020",
+          "09/01/2020",
+          "08/01/2020",
+          "07/01/2020",
+          "06/01/2020")
+history<-paste0("https://raw.githubusercontent.com/nychealth/coronavirus-data/",commits2,"/data-by-modzcta.csv")
+nyc2<-map2_dfr(history, dates2, function(file, date){
   t<-fread(file)
   t$date<-date
   t
@@ -285,25 +279,74 @@ nyc2<-map2_dfr(history, dates3, function(file, date){
   # data now has positives and % positive, so calculate total tests
   mutate(all=round(COVID_CASE_COUNT/(PERCENT_POSITIVE/100))) %>% 
   rename(positives=COVID_CASE_COUNT,
-         total_pop=POP_DENOMINATOR) %>% 
-  select(GEOID, positives, all, date, total_pop) 
+         deaths=COVID_DEATH_COUNT,
+         total_pop=POP_DENOMINATOR, 
+         all2=TOTAL_COVID_TESTS) %>% 
+  select(GEOID, positives, all, deaths, date, total_pop) 
+# keeping NYC improved population estimations
 nyc_pop<-nyc2 %>% filter(date==max(date)) %>% select(GEOID, total_pop)
 
-# April 26th was somehow erroneous  according to github notes
-# (big jump in cases, and was fixed on 27)
 nyc<-bind_rows(nyc1, nyc2 %>% select(-total_pop))
-nyc<-nyc %>% filter(date!=as_date("2020-04-26"))
-# there also seems to be an error on 4-10, where zip code 11697 has two observations, one of them duplicated from the previous day
-# removing it manually
-nyc<-nyc %>% filter(!(date==as_date("2020-04-10")&GEOID==11697&positives==52))
-
 # make sure all zip codes are included every date
 # if not, set their number of tests to 0
 template<-expand.grid(GEOID=unique(nyc$GEOID),
                       date=unique(nyc$date), stringsAsFactors = F)
 nyc<-full_join(nyc, template) %>% 
   mutate(positives=replace_na(positives, 0),
-         all=replace_na(all, 0))
+         all=replace_na(all, 0)) %>% 
+  mutate(date=as.Date(date, "%m/%d/%Y")) %>% 
+  arrange(GEOID, date)
+
+table(nyc$date)
+
+# check
+# check
+ggplot(nyc, aes(x=date, y=positives)) + geom_line(aes(group=GEOID))
+ggplot(nyc, aes(x=date, y=all)) + geom_line(aes(group=GEOID))
+ggplot(nyc, aes(x=date, y=deaths)) + geom_line(aes(group=GEOID))
+nyc %>% group_by(GEOID) %>% 
+  mutate(positives_new=positives-lag(positives),
+         all_new=all-lag(all),
+         deaths_new=deaths-lag(deaths)) %>% 
+  filter(positives_new<0) %>% 
+  arrange(positives_new) %>% 
+  View
+nyc %>% group_by(GEOID) %>% 
+  mutate(positives_new=positives-lag(positives),
+         all_new=all-lag(all),
+         deaths_new=deaths-lag(deaths)) %>% 
+  filter(all_new<0) %>% 
+  arrange(all_new) %>% 
+  View
+nyc %>% group_by(GEOID) %>% 
+  mutate(positives_new=positives-lag(positives),
+         all_new=all-lag(all),
+         deaths_new=deaths-lag(deaths)) %>% 
+  filter(deaths_new<0) %>% 
+  arrange(deaths_new) %>% 
+  View
+# NYC reports in their github some corrections to zipcode level data
+# Specifically, 2 zip codes have corrections to testing and case data in August/september, 
+## resulting in negative new tests/cases
+## for cases both are very minor changes
+## for tests both are large changes (-1k and -1.4k)
+# A few more zip codes have minor changes to the total number of deaths (mostly +-1)
+# for cases and deaths: set to 0 (this assumes the later value is correct, which is plausible)
+# for tests: setting them to 0 will cause an issue in the positivity model (denominator of 0).
+## instead: impute the value of the "corrected" month t to the average of t-1 and t+1
+## specifically: impute the value of August in c(10018,11229) for their average of July and September
+extract<-nyc %>% filter(GEOID%in%c(10018,11229), 
+                        date%in%mdy("09-01-2020", "07-01-2020")) %>% 
+  group_by(GEOID) %>% 
+  summarise(all=round(mean(all))) %>% 
+  mutate(date=mdy("08-01-2020"))
+extract<-nyc %>% filter(GEOID%in%c(10018,11229), 
+                        date%in%mdy("08-01-2020")) %>% 
+  select(-all) %>% full_join(extract)
+
+nyc<-bind_rows(nyc %>% filter(!(GEOID%in%c(10018,11229)& 
+                                date%in%mdy("08-01-2020"))), extract) %>% arrange(GEOID, date)
+
 
 
 # get philadelphia data over time
@@ -314,59 +357,65 @@ phl1<-fread("Data/PHL/Tableau_file_04252020.csv") %>%
   rename(GEOID=ZIP1,
          test=Result,
          date=`Result Date`) %>% 
-  mutate(n=1) %>% 
+  mutate(n=1,
+         date=mdy(date)) %>% 
   group_by(GEOID, date, test) %>% 
   summarise(n=sum(n)) %>% 
   filter(test!="") %>% 
   spread(test, n)
-table(mdy(phl1$date))
-# Number of zipcodes is stable from March 20th to April 24th
-# keeping a total_pop as provided by PDPH
-phl_pop<-fread("Data/PHL/Tableau_file_04252020.csv") %>% 
-  rename(GEOID=ZIP1, total_pop=`Zip Pop`) %>% 
-  filter(!duplicated(GEOID)) %>% 
-  select(GEOID, total_pop)
-
+table(phl1$date)
 
 # fill in the gaps
 template<-expand.grid(GEOID=unique(phl1$GEOID),
-                      date=unique(phl1$date))
+                      date=seq(min(phl1$date, na.rm=T), max(phl1$date, na.rm=T), by=1))
 phl1<-phl1 %>% full_join(template) %>% 
-  mutate(NEG=replace_na(NEG, 0),
-         POS=replace_na(POS, 0)) %>% 
-  rename(negative=NEG, positive=POS) %>% 
-  rowwise() %>% 
-  mutate(total_tests=sum(c(negative+positive))) %>% 
-  arrange(GEOID, date) %>% 
-  mutate(date=mdy(date)) %>% 
+  mutate(negative=replace_na(NEG, 0),
+         positive=replace_na(POS, 0),
+         total_tests=negative+positive) %>% 
   filter(!is.na(date)) %>% 
-  filter(date>=ymd("2020-03-21"),
-         date<ymd("2020-04-24")) %>% 
   arrange(GEOID, date) %>% 
   group_by(GEOID) %>% 
   mutate(cumulative_tests=cumsum(total_tests),
          cumulative_positives=cumsum(positive)) %>% 
-  select(GEOID, date, cumulative_tests, cumulative_positives) %>% 
   rename(positives=cumulative_positives,
-         all=cumulative_tests)
+         all=cumulative_tests) %>% 
+  select(GEOID, date, positives, all) %>% 
+  filter(date>=ymd("2020-02-29"),
+         date<ymd("2020-04-24")) %>% 
+  filter(date%in%c(ymd("2020-03-01"), ymd("2020-04-01")))
+  
 # then files downloaded almost daily from open data philly
 history<-list.files("Data/PHL/", pattern="covid_cases_by_zip")
 phl<-map_dfr(history, function(file){
+  print(file)
   t<-fread(paste0("Data/PHL/", file))
   date<-as_date(t %>% pull(etl_timestamp) %>% unique)
-  t<-t %>% select(covid_status, zip_code, count) %>% 
-    spread(covid_status, count) %>% 
-    rowwise() %>% 
-    mutate(all=sum(POS, NEG),
-           GEOID=as.numeric(zip_code),
-           date=date) %>% 
-    rename(positives=POS) %>% 
-    select(GEOID, date, positives, all) %>% 
-    filter(!is.na(GEOID))
+  if (date=="2020-10-01"){
+    t<-t %>% 
+      rowwise() %>% 
+      mutate(all=sum(POS, NEG, na.rm=T),
+             POS=replace_na(POS, 0),
+             GEOID=as.numeric(zip_code),
+             date=date) %>% 
+      rename(positives=POS) %>% 
+      select(GEOID, date, positives, all) %>% 
+      filter(!is.na(GEOID))
+  } else {
+    t<-t %>% select(covid_status, zip_code, count) %>% 
+      spread(covid_status, count) %>% 
+      rowwise() %>% 
+      mutate(all=sum(POS, NEG),
+             GEOID=as.numeric(zip_code),
+             date=date) %>% 
+      rename(positives=POS) %>% 
+      select(GEOID, date, positives, all) %>% 
+      filter(!is.na(GEOID))
+  }
+  
   t
 })
-# take zip code list from May 18th 
-phl_zcta<-phl %>% filter(date=="2020-05-18") %>% pull(GEOID) %>% unique
+# take zip code list from last date 
+phl_zcta<-phl %>% filter(date==max(date)) %>% pull(GEOID) %>% unique
 phl<-bind_rows(phl, phl1)
 # make sure all zip codes are included every date
 # if not, set their number of tests to 0
@@ -376,121 +425,377 @@ phl<-full_join(phl, template) %>%
   mutate(positives=replace_na(positives, 0),
          all=replace_na(all, 0)) %>% 
   filter(GEOID%in%phl_zcta)
+# make sure no duplicate dates
+phl<-phl %>% group_by(GEOID) %>% 
+  filter(!duplicated(date)) %>% 
+  arrange(GEOID, date)
+
+# get deaths in PHL zipcodes
+history<-list.files("Data/PHL/", pattern="covid_deaths_by_zip")
+phl_deaths<-map_dfr(history, function(file){
+  t<-fread(paste0("Data/PHL/", file))
+  date<-as_date(t %>% pull(etl_timestamp) %>% unique)
+  t<-t %>% select(covid_outcome, zip_code, count) %>% 
+    spread(covid_outcome, count) %>% 
+    rowwise() %>% 
+    mutate(deaths=DIED,
+           GEOID=as.numeric(zip_code),
+           date=date) %>% 
+    select(GEOID, date, deaths) %>% 
+    filter(!is.na(GEOID))
+  t
+})
+# make sure all zip codes are included every date
+# if not, set their number of deaths to 0
+# note: taking the list of zip codes from phl_Zcta above
+template<-expand.grid(GEOID=phl_zcta,
+                      date=unique(phl_deaths$date), stringsAsFactors = F)
+phl_deaths<-full_join(phl_deaths, template) %>% 
+  mutate(deaths=replace_na(deaths, 0)) %>% 
+  filter(GEOID%in%phl_zcta)
+# make sure no duplicate dates
+phl_deaths<-phl_deaths %>% group_by(GEOID) %>% 
+  filter(!duplicated(date))
+
+# merge
+phl<-full_join(phl, phl_deaths)
+table(phl$date)
 
 
-# get chicago at two time points
-# get place dataset for Illinois
-# download.file("https://www2.census.gov/geo/tiger/GENZ2018/shp/cb_2018_17_place_500k.zip",
-#               destfile ="Data/cb_2018_17_place_500k.zip" )
-# unzip("Data/cb_2018_17_place_500k.zip", exdir = "Data/Chicago/place_il/")
-place_il<-readOGR('Data/Chicago/place_il/', 'cb_2018_17_place_500k') %>% st_as_sf
-chicago_zctas2<-place_il %>% filter(grepl("^Chicago$", NAME, ignore.case=T)) %>% 
-  st_intersection(shp_zip %>% st_as_sf) %>% 
-  mutate(ZCTA5CE10=as.numeric(as.character(ZCTA5CE10))) %>% 
-  pull(ZCTA5CE10)
-# get chicago pop
-chi_pop<-fread("Data/Chicago/COVID-19_Cases__Tests__and_Deaths_by_ZIP_Code_052220.csv") %>% 
+ggplot(phl, aes(x=date, y=positives)) + geom_line(aes(group=GEOID))
+ggplot(phl, aes(x=date, y=all)) + geom_line(aes(group=GEOID))
+ggplot(phl, aes(x=date, y=deaths)) + geom_line(aes(group=GEOID))
+phl %>% group_by(GEOID) %>% 
+  mutate(positives_new=positives-lag(positives),
+         all_new=all-lag(all),
+         deaths_new=deaths-lag(deaths)) %>% 
+  filter(positives_new<0, positives!=0) %>% 
+  arrange(positives_new) %>% 
+  View
+# no issue
+phl %>% group_by(GEOID) %>% 
+  mutate(positives_new=positives-lag(positives),
+         all_new=all-lag(all),
+         deaths_new=deaths-lag(deaths)) %>% 
+  filter(all_new<0, all!=0) %>% 
+  arrange(all_new) %>% 
+  View
+# no issue
+phl %>% group_by(GEOID) %>% 
+  mutate(positives_new=positives-lag(positives),
+         all_new=all-lag(all),
+         deaths_new=deaths-lag(deaths)) %>% 
+  filter(deaths_new<0, deaths!=0) %>% 
+  arrange(deaths_new) %>% 
+  View
+
+
+# Chicago data (from CDPH)
+chi<-fread("Data/Chicago/COVID-19_Cases__Tests__and_Deaths_by_ZIP_Code_100720.csv") %>% 
   mutate(GEOID=as.numeric(`ZIP Code`),
          date=mdy(`Week End`)) %>% 
-  filter(date==max(date)) %>% 
-  rename(total_pop=Population) %>% 
   filter(!is.na(GEOID)) %>% 
-  select(GEOID, total_pop)
-# this also represents chicago ZCTAs, the one for which the city reports data
-# instead of the intersecting ones
-chicago_zctas<-chi_pop %>% pull(GEOID) %>% unique
+  rename(positives=`Cases - Cumulative`,
+         all=`Tests - Cumulative`,
+         deaths=`Deaths - Cumulative`) %>% 
+  select(GEOID, date, positives, all, deaths) %>% 
+  mutate(positives=replace_na(positives, 0)) %>% 
+  arrange(GEOID, date)
+# check
+ggplot(chi, aes(x=date, y=positives)) + geom_line(aes(group=GEOID))
+ggplot(chi, aes(x=date, y=all)) + geom_line(aes(group=GEOID))
+ggplot(chi, aes(x=date, y=deaths)) + geom_line(aes(group=GEOID))
+chi %>% group_by(GEOID) %>% 
+  mutate(positives_new=positives-lag(positives),
+         all_new=all-lag(all),
+         deaths_new=deaths-lag(deaths)) %>% 
+  filter(positives_new<0) %>% 
+  arrange(positives_new) %>% 
+  View
+chi %>% group_by(GEOID) %>% 
+  mutate(positives_new=positives-lag(positives),
+         all_new=all-lag(all),
+         deaths_new=deaths-lag(deaths)) %>% 
+  filter(all_new<0) %>% 
+  arrange(all_new) %>% 
+  View
+chi %>% group_by(GEOID) %>% 
+  mutate(positives_new=positives-lag(positives),
+         all_new=all-lag(all),
+         deaths_new=deaths-lag(deaths)) %>% 
+  filter(deaths_new<0) %>% 
+  arrange(deaths_new) %>% 
+  View
 
-
-# Chicago data, downloaded from the Chicago Reporter
-files<-list.files("Data/Chicago/Chicago_Reporter/", pattern="json")
-#file<-files[[1]]
-chicago<-map_dfr(files, function(file){
-  #print(file)
-  temp<-fromJSON(paste0("Data/Chicago/Chicago_Reporter/",file))
-  date<-temp[[1]]
-  date<-as_date(paste0(date[[1]], "-", date[[2]], "-", date[[3]]))
-  temp<-temp[[2]]
-  temp<-temp[,grepl("zip|confirmed|total_tested", colnames(temp))]
-  temp$date<-date
-  temp
-}) %>%
-  rename(GEOID=zip,
-         positives=confirmed_cases,
-         all=total_tested) %>% 
-  mutate(GEOID=as.numeric(GEOID)) %>% 
-  # remove the first few dates where there was no total testing data
-  filter(!is.na(all),
-         GEOID%in%chicago_zctas) %>% 
-  # there seems to be an issue with the first date with total testing (April 18th) and total testing, so excluding that date and including only from April 18th
-  filter(date>"2020-04-18")
-# make sure all zip codes are included every date
-# if not, set their number of tests to 0
-template<-expand.grid(GEOID=unique(chicago$GEOID),
-                      date=unique(chicago$date), stringsAsFactors = F)
-chicago<-full_join(chicago, template) %>% 
-  mutate(positives=replace_na(positives, 0),
-         all=replace_na(all, 0))
-# correcting an issue with 60603 (small zipcode), that has 3 missing dates
-# 6/49 cases/tests on 5/12 -> missing for 3 days -> 6/53 cases/tests on 5/16
-# 2 options: exclude all together, impute a value
-# for now ,imputing the mean of the last date before missing and first date after missing
-chicago[chicago$date>="2020-05-13"&
-          chicago$date<="2020-05-15"&
-          chicago$GEOID==60603,c("positives", "all")]<-c(6,6,6,51,51,51)
-
-
+final_zcta_data<-bind_rows( zcta_data %>% 
+                              filter(substr(sprintf("%05d", GEOID), 1, 2)%in%c(19, 60)),
+                            modified_zcta_data %>% 
+                             select(-total_pop) %>% 
+                             left_join(nyc_pop))
+# put all of if together
 all<-bind_rows(phl %>% 
-            mutate(city="Philadelphia") %>% 
-            left_join(zcta_data) %>% 
-              rename(total_pop_census=total_pop) %>% 
-              left_join(phl_pop),
-          nyc %>% 
-            mutate(city="New York City") %>% 
-            left_join(modified_zcta_data)%>% 
-            rename(total_pop_census=total_pop) %>% 
-            left_join(nyc_pop),
-          chicago %>% 
-            mutate(city="Chicago") %>% 
-            left_join(zcta_data)%>% 
-            rename(total_pop_census=total_pop) %>% 
-            left_join(chi_pop)) %>% 
+            mutate(city="Philadelphia"),
+            nyc %>% 
+            mutate(city="New York City"),
+            chi %>% 
+            mutate(city="Chicago"))%>%
+  left_join(final_zcta_data) %>% 
   # remove those without (or very little) population/ACS data and remove industrial zipcodes (e.g.: philly airport)
   filter(!is.na(mhi)) %>% 
-  filter(total_pop_census>100) %>% 
+  filter(total_pop>100)
+
+last_available_date<-all %>% 
   # compute the 3 key outcomes
   mutate(pct_pos=positives/all,
          pos_pc=positives/total_pop*1000,
-         tests_pc=all/total_pop*1000)
-table(all$date, all$city)
+         tests_pc=all/total_pop*1000, 
+         deaths_pc=deaths/total_pop*1000) %>% 
+  group_by(city) %>% 
+  filter(date==max(date))
 
 
-# PCA to get first component. City-stratified
-pca<-all %>% group_by(city) %>% 
+# get monthly  testing, positivity, incidence and deaths
+# For March: first date in april=new things in March (1-2 cases per city in January/February)
+# For the rest, for month t: first available date in month T+1 - first availalbe date in month t
+changes<-all %>%
+  mutate(date=as_date(date)) %>% 
+  ungroup() %>% 
+  mutate(month=month(date)) %>% 
+  arrange(GEOID, (date)) %>% 
+  group_by(GEOID, month) %>% 
+  filter(!duplicated(GEOID), month>=4)
+
+march_nodeath<-changes %>% filter(month==4) %>% 
+  mutate(positives_new=positives,
+         all_new=all) %>% 
+  select(GEOID, city, month, matches("new")) 
+rest_nodeath<-changes %>%
+  arrange(GEOID, month) %>% 
+  group_by(GEOID) %>% 
+  mutate(positives_new=positives-lag(positives),
+         all_new=all-lag(all)) %>% 
+  select(GEOID, city, month, matches("new")) %>% 
+  filter(month>4)
+changes_nodeath<-bind_rows(march_nodeath, rest_nodeath) %>% 
+  mutate(month=month-1)
+summary(changes_nodeath)
+# for deaths in chicago it's the same as above
+march_death_chi<-changes %>% filter(city=="Chicago", month==4) %>% 
+  mutate(deaths_new=deaths) %>% 
+  select(GEOID, city, month, matches("new")) 
+rest_death_chi<-changes %>%
+  filter(city=="Chicago") %>% 
+  arrange(GEOID, month) %>% 
+  group_by(GEOID) %>% 
+  mutate(deaths_new=deaths-lag(deaths)) %>% 
+  select(GEOID, city, month, matches("new")) %>% 
+  filter(month>4)
+# in NYC and Philadelphia, may is first month, so take june 1st as cumulative data through May, and then changes in June and July
+may_death_nochi<-changes %>% filter(city!="Chicago", month==6) %>% 
+  mutate(deaths_new=deaths) %>% 
+  select(GEOID, city, month, matches("new")) 
+rest_death_nochi<-changes %>%
+  filter(city!="Chicago") %>% 
+  arrange(GEOID, month) %>% 
+  group_by(GEOID) %>% 
+  mutate(deaths_new=deaths-lag(deaths)) %>% 
+  select(GEOID, city, month, matches("new")) %>% 
+  filter(month>6)
+changes_death<-bind_rows(march_death_chi, rest_death_chi,
+                         may_death_nochi, rest_death_nochi) %>% 
+  mutate(month=month-1)
+summary(changes_death)
+changes<-full_join(changes_nodeath, changes_death) %>% 
+  # a few corrections to the data were made in new days, some of them result in negative new deaths, censoring at 0
+  mutate(deaths_new=ifelse(deaths_new<0, 0, deaths_new),
+         positives_new=ifelse(positives_new<0, 0, positives_new),
+         all_new=ifelse(all_new<0, 0, all_new)) %>% 
+  left_join(final_zcta_data ) %>% 
+  mutate(pct_pos_new=positives_new/all_new,
+         pos_pc_new=positives_new/total_pop*1000,
+         tests_pc_new=all_new/total_pop*1000, 
+         deaths_pc_new=deaths_new/total_pop*1000)
+summary(changes)
+table(changes$month, changes$city)
+
+# get SVI
+# first, get ZCTA to CT crosswalk
+cw<-fread("Data/zcta_tract_rel_10.txt") %>% 
+  filter(ZCTA5%in%last_available_date$GEOID) %>% 
+  rename(FIPS=GEOID,
+         GEOID=ZCTA5) %>% 
+  select(FIPS, GEOID, ZPOPPCT) %>% 
+  mutate(ZPOPPCT=ZPOPPCT/100)
+# get SVI by CT, convert -999 to NA, join with crosswalk, and aggregate to ZCTA
+# one for each state (as recommended by CDC)
+svi1<-fread("Data/svi/Illinois.csv") %>% 
+  mutate(RPL_THEMES=ifelse(RPL_THEMES==-999, NA, RPL_THEMES),
+         RPL_THEME1=ifelse(RPL_THEME1==-999, NA, RPL_THEME1),
+         RPL_THEME2=ifelse(RPL_THEME2==-999, NA, RPL_THEME2),
+         RPL_THEME3=ifelse(RPL_THEME3==-999, NA, RPL_THEME3),
+         RPL_THEME4=ifelse(RPL_THEME4==-999, NA, RPL_THEME4)) %>% 
+  left_join(cw) %>% 
+  filter(!is.na(GEOID)) %>% 
+  group_by(GEOID) %>% 
+  summarise(svi=weighted.mean(RPL_THEMES, w=ZPOPPCT, na.rm = T),
+            svi1=weighted.mean(RPL_THEME1, w=ZPOPPCT, na.rm = T),
+            svi2=weighted.mean(RPL_THEME2, w=ZPOPPCT, na.rm = T),
+            svi3=weighted.mean(RPL_THEME3, w=ZPOPPCT, na.rm = T),
+            svi4=weighted.mean(RPL_THEME4, w=ZPOPPCT, na.rm = T)) %>% 
+  mutate(svi=as.numeric(scale(svi)),
+         svi1=as.numeric(scale(svi1)),
+         svi2=as.numeric(scale(svi2)),
+         svi3=as.numeric(scale(svi3)),
+         svi4=as.numeric(scale(svi4)))
+svi2<-fread("Data/svi/NewYork.csv") %>% 
+  mutate(RPL_THEMES=ifelse(RPL_THEMES==-999, NA, RPL_THEMES),
+         RPL_THEME1=ifelse(RPL_THEME1==-999, NA, RPL_THEME1),
+         RPL_THEME2=ifelse(RPL_THEME2==-999, NA, RPL_THEME2),
+         RPL_THEME3=ifelse(RPL_THEME3==-999, NA, RPL_THEME3),
+         RPL_THEME4=ifelse(RPL_THEME4==-999, NA, RPL_THEME4)) %>% 
+  left_join(cw) %>% 
+  filter(!is.na(GEOID)) %>% 
+  group_by(GEOID) %>% 
+  summarise(svi=weighted.mean(RPL_THEMES, w=ZPOPPCT, na.rm = T),
+            svi1=weighted.mean(RPL_THEME1, w=ZPOPPCT, na.rm = T),
+            svi2=weighted.mean(RPL_THEME2, w=ZPOPPCT, na.rm = T),
+            svi3=weighted.mean(RPL_THEME3, w=ZPOPPCT, na.rm = T),
+            svi4=weighted.mean(RPL_THEME4, w=ZPOPPCT, na.rm = T)) %>% 
+  mutate(svi=as.numeric(scale(svi)),
+         svi1=as.numeric(scale(svi1)),
+         svi2=as.numeric(scale(svi2)),
+         svi3=as.numeric(scale(svi3)),
+         svi4=as.numeric(scale(svi4)))
+svi3<-fread("Data/svi/Pennsylvania.csv") %>% 
+  mutate(RPL_THEMES=ifelse(RPL_THEMES==-999, NA, RPL_THEMES),
+         RPL_THEME1=ifelse(RPL_THEME1==-999, NA, RPL_THEME1),
+         RPL_THEME2=ifelse(RPL_THEME2==-999, NA, RPL_THEME2),
+         RPL_THEME3=ifelse(RPL_THEME3==-999, NA, RPL_THEME3),
+         RPL_THEME4=ifelse(RPL_THEME4==-999, NA, RPL_THEME4)) %>% 
+  left_join(cw) %>% 
+  filter(!is.na(GEOID)) %>% 
+  group_by(GEOID) %>% 
+  summarise(svi=weighted.mean(RPL_THEMES, w=ZPOPPCT, na.rm = T),
+            svi1=weighted.mean(RPL_THEME1, w=ZPOPPCT, na.rm = T),
+            svi2=weighted.mean(RPL_THEME2, w=ZPOPPCT, na.rm = T),
+            svi3=weighted.mean(RPL_THEME3, w=ZPOPPCT, na.rm = T),
+            svi4=weighted.mean(RPL_THEME4, w=ZPOPPCT, na.rm = T)) %>% 
+  mutate(svi=as.numeric(scale(svi)),
+         svi1=as.numeric(scale(svi1)),
+         svi2=as.numeric(scale(svi2)),
+         svi3=as.numeric(scale(svi3)),
+         svi4=as.numeric(scale(svi4)))
+svi<-bind_rows(svi1, svi2, svi3)
+last_available_date<-full_join(last_available_date, svi)
+changes<-full_join(changes, svi)
+
+
+# get neighbors for each city
+neighbors_id<-all %>%
+  group_by(city) %>% 
   filter(date==max(date)) %>% 
-  group_modify(~{
-    pca<-prcomp(.x %>% mutate(logmhi=log(mhi)) %>% 
-      select(pct_nhwhite, logmhi, 
-             pct_college, no_healthins,pct_service, 
-             pct_overcrowded1), scale=T)
-    data.frame(GEOID=.x$GEOID, pc1=pca$x[,1])
-  })
-loadings<-all %>% group_by(city) %>% 
+  group_by(city) %>% 
+  group_keys()
+neighbors<-all %>% 
+  group_by(city) %>% 
   filter(date==max(date)) %>% 
-  group_modify(~{
-    pca<-prcomp(.x %>% mutate(logmhi=log(mhi)) %>% 
-                  select(pct_nhwhite, logmhi, 
-                         pct_college, no_healthins, pct_service, 
-                         pct_overcrowded1), scale=T)
-    data.frame(var=names(pca$rotation[,1]),loading=pca$rotation[,1]) %>% 
-      mutate_at(-1,format, digits=2, nsmall=2)
+  group_by(city) %>% 
+  group_map(~{
+    if (.y$city=="New York City"){
+      # for NYC, there are a few things to fix:
+      shp_clusters<-merge(shp_zip_mod, .x, by="GEOID", all.y=T, all.x=F) 
+      nbmat<-poly2nb(shp_clusters)
+      # fix roosvelt island, 0 neighbors, but is connected across the river.
+      nbmat[[which(shp_clusters$GEOID==10044)]]<-which(shp_clusters$GEOID%in%c(11106, 11101))
+      nbmat[[which(shp_clusters$GEOID==11106)]]<-c(nbmat[[which(shp_clusters$GEOID==11106)]], which(shp_clusters$GEOID%in%c(10044)))
+      nbmat[[which(shp_clusters$GEOID==11101)]]<-c(nbmat[[which(shp_clusters$GEOID==11101)]], which(shp_clusters$GEOID%in%c(10044)))
+      # also fix NB separated because of odd MODZCTA shape: 11101 and 11222
+      nbmat[[which(shp_clusters$GEOID==11101)]]<-c(nbmat[[which(shp_clusters$GEOID==11101)]], which(shp_clusters$GEOID%in%c(11222)))
+      nbmat[[which(shp_clusters$GEOID==11222)]]<-c(nbmat[[which(shp_clusters$GEOID==11222)]], which(shp_clusters$GEOID%in%c(11101)))
+    } else {
+      shp_clusters<-merge(shp_zip, .x, by="GEOID", all.y=T, all.x=F) 
+      nbmat<-poly2nb(shp_clusters %>% filter(!duplicated(GEOID)))
+    }
+    nbmat
   })
+# save neighbors as adjacency matrices for INLA
+nb2INLA(file="Data/nb_inla_chi.adj", nb=neighbors[[1]])
+nb2INLA(file="Data/nb_inla_nyc.adj", nb=neighbors[[2]])
+nb2INLA(file="Data/nb_inla_phl.adj", nb=neighbors[[3]])
 
-all<-all %>% full_join(pca) %>% ungroup()
-head(all)
-summary(all)
+
+# last: get city-level tests, cases and deaths
+phl_city<-fread("Data/PHL/covid_cases_by_date_101920.csv") %>% 
+  mutate(date=as_date(collection_date)) %>% 
+  select(date, test_result, count) %>% 
+  spread(test_result, count) %>% 
+  mutate(positive=replace_na(positive, 0),
+         negative=replace_na(negative, 0),
+         positives=positive,
+         all=positive+negative,
+         city="Philadelphia") %>% 
+  select(city, date, positives)
+phl_city2<-fread("Data/PHL/covid_deaths_by_date_101920.csv") %>% 
+  mutate(date=as_date(clinical_date_of_death),
+         deaths=count) %>% 
+  select(date, deaths) %>% 
+  arrange(date) %>% 
+  filter(!is.na(date))
+#manually adding deaths from March from the PDPH dashboard https://www.phila.gov/programs/coronavirus-disease-2019-covid-19/testing-and-data/
+manual<-data.frame(date=as.Date(c("03-22-2020","03-23-2020","03-25-2020",
+                          "03-26-2020","03-27-2020","03-28-2020",
+                          "03-29-2020","03-30-2020","03-31-2020"),
+                          format="%m-%d-%Y"),
+                   deaths=c(1, 2, 1, 
+                            1, 5, 2,
+                            2, 5, 5))
+phl_city2<-bind_rows(phl_city2, manual)
+
+phl_city<-full_join(phl_city, phl_city2)
+  
+chi_city<-fread("Data/Chicago/COVID-19_Daily_Cases__Deaths__and_Hospitalizations_101920.csv") %>% 
+  mutate(date=as.Date(Date, format="%m/%d/%y")) %>% 
+  mutate(positives=`Cases - Total`,
+         deaths=`Deaths - Total`,
+         city="Chicago") %>% 
+  select(city, date, positives, deaths) %>% 
+  arrange(date) %>% filter(!is.na(date))
+# new york
+nyc_city<-fread("Data/NYC/case-hosp-death_101920.csv") %>% 
+  mutate(date=as.Date(DATE_OF_INTEREST, format="%m/%d/%Y"),
+         positives=CASE_COUNT,
+         deaths=DEATH_COUNT, city="New York City") %>% 
+  select(city, date, positives, deaths) %>% 
+  arrange(date)
 
 
-save(all, loadings, zcta_data, modified_zcta_data,
+city_level<-bind_rows(phl_city, chi_city, nyc_city)
+# fill in gaps with 0s
+dates<-seq(as.Date("01-01-2020", format="%m-%d-%Y"), max(city_level$date), by=1)
+template<-expand.grid(date=dates,
+                      city=unique(city_level$city))
+city_level<-full_join(city_level, template) %>% 
+  mutate(positives=replace_na(positives, 0),
+         deaths=replace_na(deaths, 0)) %>% 
+  arrange(city, date) %>% 
+  # smooth over 7 days 
+  group_by(city) %>% 
+  mutate(positives=rollmean(positives, k=7, align="center", na.pad=T),
+         deaths=rollmean(deaths, k=7, align="center", na.pad=T)) %>% 
+  # delete first/last 7 observations [median delay PDPH uses for delayed reporting]
+  arrange(city, desc(date)) %>% 
+  group_by(city) %>% 
+  slice(-(1:7)) %>% 
+  #merge with city level pop
+  full_join(all %>% filter(date==max(date)) %>% group_by(city) %>% 
+              summarise(total_pop=sum(total_pop))) %>% 
+  mutate(positives_pc=positives/total_pop*100000,
+         deaths_pc=deaths/total_pop*100000)
+
+
+save(last_available_date, changes,
+     city_level,loadings, 
+     neighbors_id,neighbors,
      shp_zip, shp_zip_mod,
      bbox_il, bbox_pa, bbox_ny,
      file="Data/clean_data.rdata")
