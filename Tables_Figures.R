@@ -7,6 +7,7 @@
 ## Exploratory_Analysis.R: contains all exploratory analysis
 ## Models.R: contains the modeling part of the paper using INLA
 ## Tables_Figures.R: contains the creation of final tables and visualizations
+## Helper_Functions.R: contains package list, options, and a couple useful functions
 
 # Tables and Figures file (D). 
 # Index: ---- 

@@ -9,6 +9,11 @@
 - Exploratory_Analysis.R: contains all exploratory analysis
 - Models.R: contains the modeling part of the paper using INLA
 - Tables_Figures.R: contains the creation of final tables and visualizations
+- Helper_Functions.R: contains package list, options, and a couple useful functions
+
+*Other files:*
+
+- Moran_Table_AllZCTAs.csv: contains local Moran's I results for all ZCTAs/outcomes in each city.
 
 We used data from three large US cities to characterize spatial and social inequities in testing, positivity, confirmed cases, and mortality.
 
