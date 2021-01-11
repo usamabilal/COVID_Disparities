@@ -1,4 +1,14 @@
-# Spatial Inequities in COVID-19 Testing, Positivity, Confirmed Cases and Mortality in 3 US Cities: an Ecological Study
+# Spatial Inequities in COVID-19 Testing, Positivity, Incidence and Mortality in 3 US Cities: a Longitudinal Ecological Study
+*Authors*: Bilal, Barber, Tabb & Diez-Roux
+
+*Contact*: ub45@drexel.edu
+
+*Code files:*
+
+- Data_Management.R: contains all data management
+- Exploratory_Analysis.R: contains all exploratory analysis
+- Models.R: contains the modeling part of the paper using INLA
+- Tables_Figures.R: contains the creation of final tables and visualizations
 
 We used data from three large US cities to characterize spatial and social inequities in testing, positivity, confirmed cases, and mortality.
 
